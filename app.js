@@ -158,15 +158,51 @@
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
 
     // ── Storage helpers ────────────────────────────────────
-    const KEY = 'comp_tracker_v3';
+    const KEY = 'comp_tracker_v5';
     function load() {
-        try { return JSON.parse(localStorage.getItem(KEY)) || { teams: {}, order: [] }; }
-        catch { return { teams: {}, order: [] }; }
+        try {
+            const d = JSON.parse(localStorage.getItem(KEY)) || { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 };
+            if (!d.meta) d.meta = {};
+            if (!d.history) d.history = []; // Initialize history if missing
+            if (typeof d.dateCounter === 'undefined') d.dateCounter = 0;
+
+            // Migration: assign IDs to existing teams
+            d.order.forEach(name => {
+                if (!d.meta[name]) {
+                    d.dateCounter++;
+                    d.meta[name] = { id: generateId(d.dateCounter) };
+                }
+            });
+
+            // Migration: if history empty but teams exist, populate history with existing takes
+            if (d.history.length === 0 && d.order.length > 0) {
+                d.order.forEach(team => {
+                    (d.teams[team] || []).forEach(c => {
+                        d.history.push({
+                            type: 'take',
+                            uid: c.uid || Date.now().toString(36),
+                            itemId: c.itemId,
+                            qty: c.qty,
+                            date: c.date,
+                            time: c.time,
+                            team: team
+                        });
+                    });
+                });
+            }
+            return d;
+        }
+        catch { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 }; }
     }
     function save(d) { localStorage.setItem(KEY, JSON.stringify(d)); }
 
+    function generateId(num) {
+        return 'IL' + String(num).padStart(3, '0');
+    }
+
     let data = load();
     let activeTeam = null;
+    let html5QrCode;
 
     // ── Date helpers ───────────────────────────────────────
     function toDateKey(d) { return d.toISOString().slice(0, 10); }
@@ -190,6 +226,9 @@
     const dailyBtn = $('#dailyBtn'), dailyModal = $('#dailyModal'), dailyContent = $('#dailyContent');
     const closeDaily = $('#closeDaily'), prevDay = $('#prevDay'), nextDay = $('#nextDay');
     const currentDateEl = $('#currentDate');
+
+    // Scanner refs
+    const scanBtn = $('#scanBtn'), scannerModal = $('#scannerModal'), closeScanner = $('#closeScanner');
 
     // ── Toast ──────────────────────────────────────────────
     let tc;
@@ -256,7 +295,10 @@
             d.className = 'team-item' + (name === activeTeam ? ' active' : '');
             const items = data.teams[name] || [];
             const totalQty = items.reduce((s, c) => s + c.qty, 0);
-            d.innerHTML = `<span>${esc(name)}</span>`
+            const meta = data.meta[name] || { id: '???' };
+
+            d.innerHTML = `<span class="team-id">${meta.id}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>`
                 + (totalQty ? `<span class="badge">${totalQty}</span>` : '');
             d.addEventListener('click', () => selectTeam(name));
             teamListEl.appendChild(d);
@@ -270,7 +312,10 @@
         teamView.style.animation = 'none';
         void teamView.offsetWidth;
         teamView.style.animation = '';
-        teamTitle.textContent = name;
+
+        const meta = data.meta[name] || { id: '???' };
+        teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${meta.id}</span>${esc(name)}`;
+
         renderTeams();
         renderInventory();
         populateSelect();
@@ -281,20 +326,29 @@
         const name = teamNameInput.value.trim();
         if (!name) return toast('Enter a team name', 'danger');
         if (data.teams[name]) return toast('Team already exists', 'danger');
+
         data.teams[name] = [];
         data.order.push(name);
+        data.dateCounter++;
+        data.meta[name] = { id: generateId(data.dateCounter) };
+
         save(data);
         teamNameInput.value = '';
         renderTeams();
         selectTeam(name);
-        toast(`Team "${name}" added`);
+        toast(`Team "${name}" added (${data.meta[name].id})`);
     }
 
     function deleteTeam() {
         if (!activeTeam) return;
         if (!confirm(`Delete team "${activeTeam}" and all its components?`)) return;
+
+        // Clean up history? Maybe not, keep history intact?
+        // Let's keep history for logs, but remove from order.
         delete data.teams[activeTeam];
+        delete data.meta[activeTeam];
         data.order = data.order.filter(n => n !== activeTeam);
+
         save(data);
         const old = activeTeam;
         activeTeam = null;
@@ -304,7 +358,7 @@
         toast(`Team "${old}" deleted`, 'danger');
     }
 
-    // ── Log component ──────────────────────────────────────
+    // ── Log component (TAKE) ───────────────────────────────
     function logComponent() {
         if (!activeTeam) return;
         const itemId = parseInt(componentSelect.value);
@@ -316,24 +370,35 @@
 
         const now = new Date();
         const dateKey = toDateKey(now);
-        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const uid = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
-        // Check if same item was already logged TODAY — merge
+        // Add to Current Inventory
         const existing = (data.teams[activeTeam] || []).find(
             c => c.itemId === itemId && c.date === dateKey
         );
         if (existing) {
             existing.qty += qty;
-            existing.time = now.toISOString();
+            existing.time = now.toISOString(); // update last time
         } else {
             data.teams[activeTeam].push({
-                uid: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                uid,
                 itemId,
                 qty,
                 date: dateKey,
                 time: now.toISOString()
             });
         }
+
+        // Add to History Log
+        data.history.push({
+            type: 'take',
+            uid,
+            itemId,
+            qty,
+            date: dateKey,
+            time: now.toISOString(),
+            team: activeTeam
+        });
 
         save(data);
         renderInventory();
@@ -342,31 +407,74 @@
         toast(`${qty}\u00D7 ${ITEM_MAP[itemId].name} logged`);
     }
 
-    // ── Qty change / remove ────────────────────────────────
+    // ── Log component (RETURN) ─────────────────────────────
+    function returnItem(uid, currentQty) {
+        if (!activeTeam) return;
+        // Prompt for qty
+        // For simplicity, return ALL or Ask?
+        // User asked for "return component".
+        let qtyToReturn = prompt(`Return how many? (Max: ${currentQty})`, currentQty);
+        if (qtyToReturn === null) return;
+        qtyToReturn = parseInt(qtyToReturn);
+        if (isNaN(qtyToReturn) || qtyToReturn <= 0 || qtyToReturn > currentQty) {
+            return toast('Invalid quantity', 'danger');
+        }
+
+        // Update Inventory
+        const teamItems = data.teams[activeTeam] || [];
+        const itemIndex = teamItems.findIndex(c => c.uid === uid);
+        if (itemIndex === -1) return;
+        const item = teamItems[itemIndex];
+
+        if (qtyToReturn >= item.qty) {
+            // Remove entire entry
+            data.teams[activeTeam].splice(itemIndex, 1);
+        } else {
+            // Reduce qty
+            item.qty -= qtyToReturn;
+        }
+
+        // Add to History Log
+        const now = new Date();
+        data.history.push({
+            type: 'return',
+            uid: Date.now().toString(36), // New UID for return event
+            itemId: item.itemId,
+            qty: qtyToReturn,
+            date: toDateKey(now),
+            time: now.toISOString(),
+            team: activeTeam
+        });
+
+        save(data);
+        renderInventory();
+        populateSelect();
+        toast(`Returned ${qtyToReturn} item(s)`);
+    }
+
+    // ── Qty Adjust (Quick Fix) & Remove ────────────────────
     function changeQty(uid, delta) {
         if (!activeTeam) return;
         const item = (data.teams[activeTeam] || []).find(c => c.uid === uid);
         if (!item) return;
+
         if (delta > 0) {
             const r = getRemaining(item.itemId);
             if (r <= 0) return toast('Out of stock!', 'danger');
+            item.qty++;
+        } else {
+            // Treat -1 as a small return? Or just correction?
+            // Let's make it correction only. Real returns should use Return Button.
+            if (item.qty > 1) item.qty--;
+            else return; // Don't remove via minus button
         }
-        item.qty = Math.max(1, item.qty + delta);
+
         save(data);
         renderInventory();
         populateSelect();
     }
 
-    function removeItem(uid) {
-        if (!activeTeam) return;
-        data.teams[activeTeam] = data.teams[activeTeam].filter(c => c.uid !== uid);
-        save(data);
-        renderInventory();
-        populateSelect();
-        toast('Removed', 'info');
-    }
-
-    // ── Render inventory (grouped by date) ─────────────────
+    // ── Render inventory ──────────────────────────────────
     function renderInventory() {
         if (!activeTeam) return;
         const items = data.teams[activeTeam] || [];
@@ -386,7 +494,6 @@
         let idx = 0;
 
         dates.forEach(dk => {
-            // Date header row
             const dateRow = document.createElement('tr');
             dateRow.innerHTML = `<td colspan="5" style="padding:14px 14px 6px;border:none;">
       <span class="date-stamp">\uD83D\uDCC5 ${formatDate(dk)}</span>
@@ -399,20 +506,20 @@
                 const name = it ? it.name : 'Unknown';
                 const tr = document.createElement('tr');
                 const t = new Date(item.time);
-                const ts = t.toLocaleString('en-US', {
-                    hour: '2-digit', minute: '2-digit', hour12: true
-                });
+                const ts = t.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 tr.innerHTML = `
         <td>${idx}</td>
         <td>${esc(name)}</td>
         <td><div class="qty-cell">
-          <button class="qty-btn" data-uid="${item.uid}" data-d="-1">\u2212</button>
+          <!-- <button class="qty-btn" data-uid="${item.uid}" data-d="-1">\u2212</button> -->
           <span class="qty-val">${item.qty}</span>
-          <button class="qty-btn" data-uid="${item.uid}" data-d="1">＋</button>
+          <!-- <button class="qty-btn" data-uid="${item.uid}" data-d="1">＋</button> -->
         </div></td>
         <td style="color:var(--text-dim)">${ts}</td>
-        <td><button class="remove-btn" data-uid="${item.uid}">Remove</button></td>`;
+        <td>
+          <button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">\u21A9 Return</button>
+        </td>`;
                 inventoryBody.appendChild(tr);
             });
         });
@@ -421,32 +528,37 @@
     // ── Delegate clicks in inventory ───────────────────────
     inventoryBody.addEventListener('click', e => {
         const qb = e.target.closest('.qty-btn');
-        if (qb) return changeQty(qb.dataset.uid, parseInt(qb.dataset.d));
-        const rb = e.target.closest('.remove-btn');
-        if (rb) return removeItem(rb.dataset.uid);
+        // if(qb) return changeQty(qb.dataset.uid, parseInt(qb.dataset.d)); // Disable direct edit, force return flow
+        const rb = e.target.closest('.return-btn');
+        if (rb) return returnItem(rb.dataset.uid, parseInt(rb.dataset.qty));
     });
 
     componentSelect.addEventListener('change', updateStockHint);
 
-    // ── Export CSV ──────────────────────────────────────────
+    // ── Export CSV (Full History) ──────────────────────────
     function exportCSV() {
-        if (!data.order.length) return toast('No data', 'info');
-        let csv = 'Team,Sl.No,Component,Qty Taken,Date,Time,Stock Total\n';
-        data.order.forEach(team => {
-            (data.teams[team] || []).forEach(c => {
-                const it = ITEM_MAP[c.itemId];
-                const d = new Date(c.time);
-                csv += `"${team}",${c.itemId},"${it ? it.name : '?'}",${c.qty},"${c.date || ''}","${d.toLocaleTimeString()}",${it ? it.stock : '?'}\n`;
-            });
+        if (!data.history.length) return toast('No history', 'info');
+        let csv = 'Type,Team ID,Team Name,Component,Qty,Date,Time\n';
+
+        // Sort history by date desc
+        const sorted = [...data.history].sort((a, b) => b.time.localeCompare(a.time));
+
+        sorted.forEach(h => {
+            const meta = data.meta[h.team] || { id: '' };
+            const it = ITEM_MAP[h.itemId];
+            const d = new Date(h.time);
+            const type = h.type === 'return' ? 'RETURNED' : 'TAKEN';
+            csv += `"${type}","${meta.id}","${h.team}","${it ? it.name : '?'}",${h.qty},"${h.date}","${d.toLocaleTimeString()}"\n`;
         });
+
         const b = new Blob([csv], { type: 'text/csv' });
         const u = URL.createObjectURL(b);
         const a = document.createElement('a');
         a.href = u;
-        a.download = 'component_log.csv';
+        a.download = 'component_log_full.csv';
         a.click();
         URL.revokeObjectURL(u);
-        toast('CSV downloaded');
+        toast('Full History CSV exported');
     }
 
     // ── Summary modal ──────────────────────────────────────
@@ -454,13 +566,13 @@
         if (!data.order.length) return toast('No teams', 'info');
         let total = 0, html = '';
         data.order.forEach(team => {
+            const meta = data.meta[team] || { id: '' };
             const items = data.teams[team] || [];
             if (!items.length) {
-                html += `<div class="summary-team"><h4><span class="dot"></span>${esc(team)}</h4>
-        <p style="color:var(--text-dim);font-size:.85rem">No components.</p></div>`;
+                html += `<div class="summary-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)}</h4>
+        <p style="color:var(--text-dim);font-size:.85rem">No components currently checked out.</p></div>`;
                 return;
             }
-            // Aggregate by component (across dates)
             const agg = {};
             items.forEach(c => {
                 if (!agg[c.itemId]) agg[c.itemId] = 0;
@@ -473,10 +585,10 @@
                 rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${qty}</td></tr>`;
             });
             total += tq;
-            html += `<div class="summary-team"><h4><span class="dot"></span>${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
+            html += `<div class="summary-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
       <table><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         });
-        html += `<div class="summary-total">Grand Total: <span>${total} components</span> across ${data.order.length} team${data.order.length > 1 ? 's' : ''}</div>`;
+        html += `<div class="summary-total">Current Total In Circulation: <span>${total} components</span></div>`;
         summaryContent.innerHTML = html;
         summaryModal.classList.remove('hidden');
     }
@@ -502,37 +614,48 @@
         stockContent.innerHTML = html;
     }
 
-    // ── Daily Log modal ────────────────────────────────────
+    // ── Daily Log modal (History View) ─────────────────────
     let dailyDate = todayKey();
 
     function showDaily() {
         currentDateEl.textContent = formatDate(dailyDate);
         let html = '';
-        let dayTotal = 0;
-        let hasEntries = false;
 
-        data.order.forEach(team => {
-            const items = (data.teams[team] || []).filter(c => c.date === dailyDate);
-            if (!items.length) return;
-            hasEntries = true;
-            let rows = '';
-            let teamQty = 0;
-            items.forEach(c => {
-                const it = ITEM_MAP[c.itemId];
-                const t = new Date(c.time);
-                const ts = t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-                teamQty += c.qty;
-                rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${c.qty}</td><td style="color:var(--text-dim)">${ts}</td></tr>`;
-            });
-            dayTotal += teamQty;
-            html += `<div class="daily-team"><h4><span class="dot"></span>${esc(team)} — <span style="color:var(--accent3)">${teamQty} items</span></h4>
-      <table><thead><tr><th>Component</th><th>Qty</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-        });
+        // Filter history for this date
+        const events = data.history.filter(h => h.date === dailyDate);
 
-        if (!hasEntries) {
-            html = '<p class="daily-none">No components logged on this date.</p>';
+        // Group by Team
+        // Actually, chronologically is better for a "Log".
+        // Or Team-wise. Let's do Team-wise for consistency with other views.
+
+        // Get all teams involved today
+        const teamsToday = [...new Set(events.map(e => e.team))];
+
+        if (!teamsToday.length) {
+            html = '<p class="daily-none">No activity on this date.</p>';
         } else {
-            html += `<div class="summary-total">Day Total: <span>${dayTotal} components</span></div>`;
+            teamsToday.forEach(team => {
+                const meta = data.meta[team] || { id: '' };
+                const teamEvents = events.filter(e => e.team === team).sort((a, b) => a.time.localeCompare(b.time));
+
+                let rows = '';
+                teamEvents.forEach(e => {
+                    const it = ITEM_MAP[e.itemId];
+                    const t = new Date(e.time);
+                    const ts = t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const isReturn = e.type === 'return';
+
+                    rows += `<tr class="history-row ${isReturn ? 'returned' : ''}">
+          <td>${esc(it ? it.name : '?')}</td>
+          <td style="font-weight:600">${e.qty}</td>
+          <td style="color:var(--text-dim)">${ts}</td>
+          <td>${isReturn ? '<span class="badge-returned">RETURNED</span>' : '<span style="color:var(--amity-blue);font-size:.7rem;font-weight:700">TAKEN</span>'}</td>
+        </tr>`;
+                });
+
+                html += `<div class="daily-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)}</h4>
+        <table><thead><tr><th>Component</th><th>Qty</th><th>Time</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            });
         }
 
         dailyContent.innerHTML = html;
@@ -543,6 +666,57 @@
         d.setDate(d.getDate() + delta);
         dailyDate = toDateKey(d);
         showDaily();
+    }
+
+    // ── QR Scanner ─────────────────────────────────────────
+    function onScanSuccess(decodedText, decodedResult) {
+        // Try to parse ID. Expects "101" or "ID:101" or JSON.
+        // Simplest: match digits.
+        const match = decodedText.match(/(\d+)/);
+        if (match) {
+            const id = parseInt(match[1]);
+            if (ITEM_MAP[id]) {
+                componentSelect.value = id;
+                updateStockHint();
+                // Flash UI
+                const row = $('.component-entry');
+                row.style.background = '#dcfce7';
+                setTimeout(() => row.style.background = '#fff', 300);
+
+                // Close modal
+                closeScannerModal();
+                toast(`Scanned: ${ITEM_MAP[id].name}`);
+            } else {
+                toast(`Unknown Item ID: ${id}`, 'danger');
+            }
+        } else {
+            toast(`Could not read ID from QR`, 'danger');
+        }
+    }
+
+    function startScanner() {
+        scannerModal.classList.remove('hidden');
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("reader");
+        }
+        html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            onScanSuccess,
+            (errorMessage) => { /* ignore parse errors */ }
+        ).catch(err => {
+            console.error(err);
+            toast('Camera error: ' + err, 'danger');
+        });
+    }
+
+    function closeScannerModal() {
+        scannerModal.classList.add('hidden');
+        if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().then(() => {
+                // stopped
+            }).catch(err => console.error(err));
+        }
     }
 
     // ── Utils ──────────────────────────────────────────────
@@ -572,6 +746,12 @@
     dailyModal.addEventListener('click', e => { if (e.target === dailyModal) dailyModal.classList.add('hidden'); });
     prevDay.addEventListener('click', () => shiftDay(-1));
     nextDay.addEventListener('click', () => shiftDay(1));
+
+    // Scanner
+    if (scanBtn) scanBtn.addEventListener('click', startScanner);
+    if (closeScanner) closeScanner.addEventListener('click', closeScannerModal);
+    if (scannerModal) scannerModal.addEventListener('click', e => { if (e.target === scannerModal) closeScannerModal(); });
+
 
     // ── Init ───────────────────────────────────────────────
     initToast();

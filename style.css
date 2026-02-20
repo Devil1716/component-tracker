@@ -595,7 +595,8 @@ tbody td:nth-child(2) {
   font-weight: 700;
 }
 
-.remove-btn {
+.remove-btn,
+.return-btn {
   padding: 6px 12px;
   border: none;
   background: transparent;
@@ -604,12 +605,21 @@ tbody td:nth-child(2) {
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition);
+  border-radius: 6px;
 }
 
 .remove-btn:hover {
   color: var(--danger);
   background: #fee2e2;
-  border-radius: 6px;
+}
+
+.return-btn {
+  color: var(--amity-blue);
+}
+
+.return-btn:hover {
+  color: #fff;
+  background: var(--amity-blue);
 }
 
 .no-items {
@@ -910,6 +920,40 @@ tbody td:nth-child(2) {
 
 .toast.danger {
   border-left-color: var(--danger);
+}
+
+/* Added styles for Team ID & Returns */
+.team-id {
+  display: inline-block;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  font-size: .75rem;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.badge-returned {
+  font-size: .7rem;
+  font-weight: 800;
+  color: var(--success);
+  background: #dcfce7;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+
+.history-row.returned {
+  opacity: 0.6;
+}
+
+.history-row.returned td {
+  text-decoration: line-through;
+  color: var(--text-dim);
 }
 
 /* ── Responsive ─────────────────────────────────────────── */
