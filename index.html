@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Track electronic components taken by each team — jumper wires, resistors, LEDs, and more.">
+    <title>Component Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ───── Sidebar ───── -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <h1>⚡ Tracker</h1>
+            <p class="subtitle">Component Log</p>
+        </div>
+
+        <div class="team-add">
+            <input type="text" id="teamNameInput" placeholder="New team name…" maxlength="30">
+            <button id="addTeamBtn" title="Add team">＋</button>
+        </div>
+
+        <nav id="teamList" class="team-list">
+            <!-- filled by JS -->
+        </nav>
+
+        <button id="stockBtn" class="btn-stock" title="View remaining stock">📦 Stock</button>
+
+        <div class="sidebar-footer">
+            <button id="dailyBtn" class="btn-summary" title="Daily log">📅 Daily Log</button>
+            <button id="exportBtn" class="btn-export" title="Export CSV">📥 Export CSV</button>
+            <button id="summaryBtn" class="btn-summary" title="Show summary">📊 Summary</button>
+        </div>
+    </aside>
+
+    <!-- ───── Main Panel ───── -->
+    <main id="main">
+
+        <!-- Empty state -->
+        <section id="emptyState" class="empty-state">
+            <div class="empty-icon">📦</div>
+            <h2>No team selected</h2>
+            <p>Add a team from the sidebar, then select it to start logging components.</p>
+        </section>
+
+        <!-- Team view -->
+        <section id="teamView" class="team-view hidden">
+
+            <header class="team-header">
+                <h2 id="teamTitle"></h2>
+                <button id="deleteTeamBtn" class="btn-delete" title="Delete this team">🗑️ Delete</button>
+            </header>
+
+            <!-- Component entry -->
+            <div class="component-entry glass">
+                <h3>Add Component</h3>
+                <div class="entry-row">
+                    <select id="componentSelect">
+                        <!-- populated by JS from CATALOG -->
+                    </select>
+                    <input type="number" id="quantityInput" min="1" value="1" placeholder="Qty">
+                    <button id="logComponentBtn" class="btn-log">＋ Log</button>
+                </div>
+                <p id="stockHint" class="stock-hint"></p>
+            </div>
+
+            <!-- Inventory table -->
+            <div class="inventory glass">
+                <h3>Checked-Out Components</h3>
+                <div class="table-wrap">
+                    <table id="inventoryTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Component</th>
+                                <th>Qty</th>
+                                <th>Time Logged</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryBody">
+                            <!-- filled by JS -->
+                        </tbody>
+                    </table>
+                    <p id="noItemsMsg" class="no-items">No components logged yet.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Summary modal -->
+        <div id="summaryModal" class="modal-overlay hidden">
+            <div class="modal glass">
+                <div class="modal-header">
+                    <h2>📊 All-Teams Summary</h2>
+                    <button id="closeSummary" class="modal-close">&times;</button>
+                </div>
+                <div id="summaryContent" class="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Stock modal -->
+        <div id="stockModal" class="modal-overlay hidden">
+            <div class="modal glass">
+                <div class="modal-header">
+                    <h2>📦 Remaining Stock</h2>
+                    <button id="closeStock" class="modal-close">&times;</button>
+                </div>
+                <div class="modal-search">
+                    <input type="text" id="stockSearch" placeholder="Search components…">
+                </div>
+                <div id="stockContent" class="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Daily log modal -->
+        <div id="dailyModal" class="modal-overlay hidden">
+            <div class="modal glass">
+                <div class="modal-header">
+                    <h2>📅 Daily Log</h2>
+                    <button id="closeDaily" class="modal-close">&times;</button>
+                </div>
+                <div class="date-nav">
+                    <button id="prevDay" class="date-nav-btn">◀</button>
+                    <span id="currentDate" class="date-label"></span>
+                    <button id="nextDay" class="date-nav-btn">▶</button>
+                </div>
+                <div id="dailyContent" class="modal-body"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
