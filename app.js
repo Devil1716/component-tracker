@@ -158,12 +158,12 @@
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
 
     // ── Storage helpers ────────────────────────────────────
-    const KEY = 'comp_tracker_v5';
+    const KEY = 'comp_tracker_v7';
     function load() {
         try {
             const d = JSON.parse(localStorage.getItem(KEY)) || { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 };
             if (!d.meta) d.meta = {};
-            if (!d.history) d.history = []; // Initialize history if missing
+            if (!d.history) d.history = [];
             if (typeof d.dateCounter === 'undefined') d.dateCounter = 0;
 
             // Migration: assign IDs to existing teams
@@ -174,22 +174,6 @@
                 }
             });
 
-            // Migration: if history empty but teams exist, populate history with existing takes
-            if (d.history.length === 0 && d.order.length > 0) {
-                d.order.forEach(team => {
-                    (d.teams[team] || []).forEach(c => {
-                        d.history.push({
-                            type: 'take',
-                            uid: c.uid || Date.now().toString(36),
-                            itemId: c.itemId,
-                            qty: c.qty,
-                            date: c.date,
-                            time: c.time,
-                            team: team
-                        });
-                    });
-                });
-            }
             return d;
         }
         catch { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 }; }
@@ -202,7 +186,6 @@
 
     let data = load();
     let activeTeam = null;
-    let html5QrCode;
 
     // ── Date helpers ───────────────────────────────────────
     function toDateKey(d) { return d.toISOString().slice(0, 10); }
@@ -216,7 +199,8 @@
     const $ = s => document.querySelector(s);
     const teamNameInput = $('#teamNameInput'), addTeamBtn = $('#addTeamBtn'), teamListEl = $('#teamList');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
-    const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect');
+    const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
+    const componentList = $('#componentList'); // DATALIST
     const quantityInput = $('#quantityInput'), logComponentBtn = $('#logComponentBtn');
     const inventoryBody = $('#inventoryBody'), noItemsMsg = $('#noItemsMsg');
     const exportBtn = $('#exportBtn'), summaryBtn = $('#summaryBtn'), summaryModal = $('#summaryModal');
@@ -227,8 +211,7 @@
     const closeDaily = $('#closeDaily'), prevDay = $('#prevDay'), nextDay = $('#nextDay');
     const currentDateEl = $('#currentDate');
 
-    // Scanner refs
-    const scanBtn = $('#scanBtn'), scannerModal = $('#scannerModal'), closeScanner = $('#closeScanner');
+    const sidebar = $('#sidebar'), sidebarToggle = $('#sidebarToggle');
 
     // ── Toast ──────────────────────────────────────────────
     let tc;
@@ -245,23 +228,29 @@
         setTimeout(() => { e.style.opacity = '0'; setTimeout(() => e.remove(), 300); }, 2400);
     }
 
-    // ── Populate dropdown ──────────────────────────────────
-    function populateSelect() {
-        componentSelect.innerHTML = '';
+    // ── Populate DataList ──────────────────────────────────
+    function populateDataList() {
+        componentList.innerHTML = '';
         CATALOG.forEach(cat => {
-            const og = document.createElement('optgroup');
-            og.label = cat.cat;
             cat.items.forEach(it => {
-                const o = document.createElement('option');
-                o.value = it.id;
                 const r = getRemaining(it.id);
-                o.textContent = `${it.name}  [${r} left]`;
-                if (r <= 0) o.disabled = true;
-                og.appendChild(o);
+                const o = document.createElement('option');
+                o.value = `[${it.id}] ${it.name}`;
+                o.label = `${cat.cat} (${r} left)`;
+                componentList.appendChild(o);
             });
-            componentSelect.appendChild(og);
         });
-        updateStockHint();
+    }
+
+    // ── Helper: Parse ID from Input ────────────────────────
+    function getSelectedId() {
+        const val = componentSelect.value.trim();
+        if (!val) return null;
+        const m = val.match(/^\[(\d+)\]/);
+        if (m) return parseInt(m[1]);
+        const num = parseInt(val);
+        if (!isNaN(num) && ITEM_MAP[num]) return num;
+        return null;
     }
 
     // ── Stock math ─────────────────────────────────────────
@@ -278,7 +267,7 @@
         return it.stock - getTotalUsed(itemId);
     }
     function updateStockHint() {
-        const id = parseInt(componentSelect.value);
+        const id = getSelectedId();
         if (!id || !ITEM_MAP[id]) { stockHint.innerHTML = ''; return; }
         const r = getRemaining(id), total = ITEM_MAP[id].stock;
         let cls = 'ok';
@@ -318,7 +307,10 @@
 
         renderTeams();
         renderInventory();
-        populateSelect();
+        populateDataList();
+        quantityInput.value = 1;
+        componentSelect.value = '';
+        stockHint.innerHTML = '';
     }
 
     // ── Add / delete team ──────────────────────────────────
@@ -343,8 +335,6 @@
         if (!activeTeam) return;
         if (!confirm(`Delete team "${activeTeam}" and all its components?`)) return;
 
-        // Clean up history? Maybe not, keep history intact?
-        // Let's keep history for logs, but remove from order.
         delete data.teams[activeTeam];
         delete data.meta[activeTeam];
         data.order = data.order.filter(n => n !== activeTeam);
@@ -361,8 +351,9 @@
     // ── Log component (TAKE) ───────────────────────────────
     function logComponent() {
         if (!activeTeam) return;
-        const itemId = parseInt(componentSelect.value);
-        if (!itemId || !ITEM_MAP[itemId]) return toast('Select a component', 'danger');
+        const itemId = getSelectedId();
+        if (!itemId) return toast('Select a valid component', 'danger');
+
         const qty = parseInt(quantityInput.value, 10);
         if (!qty || qty < 1) return toast('Qty must be at least 1', 'danger');
         const remaining = getRemaining(itemId);
@@ -372,13 +363,12 @@
         const dateKey = toDateKey(now);
         const uid = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
-        // Add to Current Inventory
         const existing = (data.teams[activeTeam] || []).find(
             c => c.itemId === itemId && c.date === dateKey
         );
         if (existing) {
             existing.qty += qty;
-            existing.time = now.toISOString(); // update last time
+            existing.time = now.toISOString();
         } else {
             data.teams[activeTeam].push({
                 uid,
@@ -389,7 +379,6 @@
             });
         }
 
-        // Add to History Log
         data.history.push({
             type: 'take',
             uid,
@@ -402,17 +391,16 @@
 
         save(data);
         renderInventory();
-        populateSelect();
+        populateDataList();
         quantityInput.value = 1;
+        componentSelect.value = '';
+        stockHint.innerHTML = '';
         toast(`${qty}\u00D7 ${ITEM_MAP[itemId].name} logged`);
     }
 
     // ── Log component (RETURN) ─────────────────────────────
     function returnItem(uid, currentQty) {
         if (!activeTeam) return;
-        // Prompt for qty
-        // For simplicity, return ALL or Ask?
-        // User asked for "return component".
         let qtyToReturn = prompt(`Return how many? (Max: ${currentQty})`, currentQty);
         if (qtyToReturn === null) return;
         qtyToReturn = parseInt(qtyToReturn);
@@ -420,25 +408,21 @@
             return toast('Invalid quantity', 'danger');
         }
 
-        // Update Inventory
         const teamItems = data.teams[activeTeam] || [];
         const itemIndex = teamItems.findIndex(c => c.uid === uid);
         if (itemIndex === -1) return;
         const item = teamItems[itemIndex];
 
         if (qtyToReturn >= item.qty) {
-            // Remove entire entry
             data.teams[activeTeam].splice(itemIndex, 1);
         } else {
-            // Reduce qty
             item.qty -= qtyToReturn;
         }
 
-        // Add to History Log
         const now = new Date();
         data.history.push({
             type: 'return',
-            uid: Date.now().toString(36), // New UID for return event
+            uid: Date.now().toString(36),
             itemId: item.itemId,
             qty: qtyToReturn,
             date: toDateKey(now),
@@ -448,30 +432,8 @@
 
         save(data);
         renderInventory();
-        populateSelect();
+        populateDataList();
         toast(`Returned ${qtyToReturn} item(s)`);
-    }
-
-    // ── Qty Adjust (Quick Fix) & Remove ────────────────────
-    function changeQty(uid, delta) {
-        if (!activeTeam) return;
-        const item = (data.teams[activeTeam] || []).find(c => c.uid === uid);
-        if (!item) return;
-
-        if (delta > 0) {
-            const r = getRemaining(item.itemId);
-            if (r <= 0) return toast('Out of stock!', 'danger');
-            item.qty++;
-        } else {
-            // Treat -1 as a small return? Or just correction?
-            // Let's make it correction only. Real returns should use Return Button.
-            if (item.qty > 1) item.qty--;
-            else return; // Don't remove via minus button
-        }
-
-        save(data);
-        renderInventory();
-        populateSelect();
     }
 
     // ── Render inventory ──────────────────────────────────
@@ -481,7 +443,6 @@
         inventoryBody.innerHTML = '';
         noItemsMsg.classList.toggle('hidden', items.length > 0);
 
-        // Group items by date
         const byDate = {};
         items.forEach(item => {
             const dk = item.date || 'Unknown';
@@ -489,7 +450,6 @@
             byDate[dk].push(item);
         });
 
-        // Sort dates descending (newest first)
         const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
         let idx = 0;
 
@@ -512,9 +472,7 @@
         <td>${idx}</td>
         <td>${esc(name)}</td>
         <td><div class="qty-cell">
-          <!-- <button class="qty-btn" data-uid="${item.uid}" data-d="-1">\u2212</button> -->
           <span class="qty-val">${item.qty}</span>
-          <!-- <button class="qty-btn" data-uid="${item.uid}" data-d="1">＋</button> -->
         </div></td>
         <td style="color:var(--text-dim)">${ts}</td>
         <td>
@@ -527,22 +485,17 @@
 
     // ── Delegate clicks in inventory ───────────────────────
     inventoryBody.addEventListener('click', e => {
-        const qb = e.target.closest('.qty-btn');
-        // if(qb) return changeQty(qb.dataset.uid, parseInt(qb.dataset.d)); // Disable direct edit, force return flow
         const rb = e.target.closest('.return-btn');
         if (rb) return returnItem(rb.dataset.uid, parseInt(rb.dataset.qty));
     });
 
-    componentSelect.addEventListener('change', updateStockHint);
+    componentSelect.addEventListener('input', updateStockHint);
 
     // ── Export CSV (Full History) ──────────────────────────
     function exportCSV() {
         if (!data.history.length) return toast('No history', 'info');
         let csv = 'Type,Team ID,Team Name,Component,Qty,Date,Time\n';
-
-        // Sort history by date desc
         const sorted = [...data.history].sort((a, b) => b.time.localeCompare(a.time));
-
         sorted.forEach(h => {
             const meta = data.meta[h.team] || { id: '' };
             const it = ITEM_MAP[h.itemId];
@@ -550,7 +503,6 @@
             const type = h.type === 'return' ? 'RETURNED' : 'TAKEN';
             csv += `"${type}","${meta.id}","${h.team}","${it ? it.name : '?'}",${h.qty},"${h.date}","${d.toLocaleTimeString()}"\n`;
         });
-
         const b = new Blob([csv], { type: 'text/csv' });
         const u = URL.createObjectURL(b);
         const a = document.createElement('a');
@@ -620,15 +572,7 @@
     function showDaily() {
         currentDateEl.textContent = formatDate(dailyDate);
         let html = '';
-
-        // Filter history for this date
         const events = data.history.filter(h => h.date === dailyDate);
-
-        // Group by Team
-        // Actually, chronologically is better for a "Log".
-        // Or Team-wise. Let's do Team-wise for consistency with other views.
-
-        // Get all teams involved today
         const teamsToday = [...new Set(events.map(e => e.team))];
 
         if (!teamsToday.length) {
@@ -637,14 +581,12 @@
             teamsToday.forEach(team => {
                 const meta = data.meta[team] || { id: '' };
                 const teamEvents = events.filter(e => e.team === team).sort((a, b) => a.time.localeCompare(b.time));
-
                 let rows = '';
                 teamEvents.forEach(e => {
                     const it = ITEM_MAP[e.itemId];
                     const t = new Date(e.time);
                     const ts = t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
                     const isReturn = e.type === 'return';
-
                     rows += `<tr class="history-row ${isReturn ? 'returned' : ''}">
           <td>${esc(it ? it.name : '?')}</td>
           <td style="font-weight:600">${e.qty}</td>
@@ -652,12 +594,10 @@
           <td>${isReturn ? '<span class="badge-returned">RETURNED</span>' : '<span style="color:var(--amity-blue);font-size:.7rem;font-weight:700">TAKEN</span>'}</td>
         </tr>`;
                 });
-
                 html += `<div class="daily-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)}</h4>
         <table><thead><tr><th>Component</th><th>Qty</th><th>Time</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
             });
         }
-
         dailyContent.innerHTML = html;
     }
 
@@ -668,55 +608,15 @@
         showDaily();
     }
 
-    // ── QR Scanner ─────────────────────────────────────────
-    function onScanSuccess(decodedText, decodedResult) {
-        // Try to parse ID. Expects "101" or "ID:101" or JSON.
-        // Simplest: match digits.
-        const match = decodedText.match(/(\d+)/);
-        if (match) {
-            const id = parseInt(match[1]);
-            if (ITEM_MAP[id]) {
-                componentSelect.value = id;
-                updateStockHint();
-                // Flash UI
-                const row = $('.component-entry');
-                row.style.background = '#dcfce7';
-                setTimeout(() => row.style.background = '#fff', 300);
-
-                // Close modal
-                closeScannerModal();
-                toast(`Scanned: ${ITEM_MAP[id].name}`);
-            } else {
-                toast(`Unknown Item ID: ${id}`, 'danger');
-            }
-        } else {
-            toast(`Could not read ID from QR`, 'danger');
-        }
+    // ── Sidebar Toggle ─────────────────────────────────────
+    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+        sidebar.classList.add('collapsed');
     }
-
-    function startScanner() {
-        scannerModal.classList.remove('hidden');
-        if (!html5QrCode) {
-            html5QrCode = new Html5Qrcode("reader");
-        }
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            onScanSuccess,
-            (errorMessage) => { /* ignore parse errors */ }
-        ).catch(err => {
-            console.error(err);
-            toast('Camera error: ' + err, 'danger');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
         });
-    }
-
-    function closeScannerModal() {
-        scannerModal.classList.add('hidden');
-        if (html5QrCode && html5QrCode.isScanning) {
-            html5QrCode.stop().then(() => {
-                // stopped
-            }).catch(err => console.error(err));
-        }
     }
 
     // ── Utils ──────────────────────────────────────────────
@@ -747,14 +647,8 @@
     prevDay.addEventListener('click', () => shiftDay(-1));
     nextDay.addEventListener('click', () => shiftDay(1));
 
-    // Scanner
-    if (scanBtn) scanBtn.addEventListener('click', startScanner);
-    if (closeScanner) closeScanner.addEventListener('click', closeScannerModal);
-    if (scannerModal) scannerModal.addEventListener('click', e => { if (e.target === scannerModal) closeScannerModal(); });
-
-
     // ── Init ───────────────────────────────────────────────
     initToast();
     renderTeams();
-    populateSelect();
+    populateDataList();
 })();

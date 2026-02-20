@@ -9,7 +9,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 </head>
 
 <body>
@@ -17,8 +16,11 @@
     <!-- ───── Sidebar ───── -->
     <aside id="sidebar">
         <div class="sidebar-header">
-            <h1>🎓 Amity</h1>
-            <p class="subtitle">Component Log</p>
+            <div>
+                <h1>🎓 Amity</h1>
+                <p class="subtitle">Component Log</p>
+            </div>
+            <button id="sidebarToggle" class="sidebar-toggle" title="Toggle Sidebar">☰</button>
         </div>
 
         <div class="team-add">
@@ -30,12 +32,11 @@
             <!-- Team items here -->
         </div>
 
-        <button class="btn-stock" id="stockBtn">📦 Stock</button>
-
+        <button class="btn-stock" id="stockBtn" title="Stock Inventory">📦 <span>Stock</span></button>
         <div class="sidebar-footer">
-            <button class="btn-stock" id="dailyBtn">📅 Daily Log</button>
-            <button class="btn-summary" id="summaryBtn">📊 Summary</button>
-            <button class="btn-export" id="exportBtn">📥 Export CSV</button>
+            <button class="btn-stock" id="dailyBtn" title="Daily Log">📅 <span>Daily Log</span></button>
+            <button class="btn-summary" id="summaryBtn" title="Summary">📊 <span>Summary</span></button>
+            <button class="btn-export" id="exportBtn" title="Export CSV">📥 <span>Export</span></button>
         </div>
     </aside>
 
@@ -56,12 +57,13 @@
             <div class="component-entry glass">
                 <h3>Add Component</h3>
                 <div class="entry-row">
-                    <button class="btn-primary" id="scanBtn"
-                        style="padding:10px 16px;font-size:1.2rem;margin-right:8px;background:var(--amity-blue);color:#fff"
-                        title="Scan QR Code">&#128247;</button>
-                    <select id="componentSelect">
-                        <!-- Options populated by JS -->
-                    </select>
+                    <div style="flex:1;min-width:240px;position:relative">
+                        <input list="componentList" id="componentSelect" placeholder="Search by ID or Name..."
+                            style="width:100%">
+                        <datalist id="componentList">
+                            <!-- Options populated by JS -->
+                        </datalist>
+                    </div>
                     <input type="number" id="quantityInput" value="1" min="1">
                     <button class="btn-log" id="logComponentBtn">＋ Log</button>
                 </div>
@@ -125,19 +127,6 @@
                 <button class="date-nav-btn" id="nextDay">▶</button>
             </div>
             <div class="modal-body" id="dailyContent"></div>
-        </div>
-    </div>
-
-    <div id="scannerModal" class="modal-overlay hidden">
-        <div class="modal" style="max-width:500px">
-            <div class="modal-header">
-                <h2>Scan QR Code</h2>
-                <button class="modal-close" id="closeScanner">&times;</button>
-            </div>
-            <div class="modal-body" style="padding:20px;text-align:center">
-                <div id="reader" style="width:100%;min-height:300px;background:#000"></div>
-                <p style="margin-top:10px;color:var(--text-dim)">Point camera at a component QR code</p>
-            </div>
         </div>
     </div>
 

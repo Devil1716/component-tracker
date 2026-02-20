@@ -956,6 +956,110 @@ tbody td:nth-child(2) {
   color: var(--text-dim);
 }
 
+/* Sidebar Toggle & Collapse */
+.sidebar-header {
+  display: flex !important;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-toggle {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--amity-gold);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  transition: all var(--transition);
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Collapsed State */
+#sidebar.collapsed {
+  width: 72px;
+  min-width: 72px;
+  padding: 0 4px;
+}
+
+#sidebar.collapsed .sidebar-header {
+  padding: 24px 8px 16px;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#sidebar.collapsed .sidebar-header div {
+  display: none;
+}
+
+#sidebar.collapsed .sidebar-header::before {
+  content: "🎓";
+  font-size: 1.8rem;
+  display: block;
+}
+
+#sidebar.collapsed .team-add {
+  padding: 12px 0;
+  justify-content: center;
+}
+
+#sidebar.collapsed .team-add input {
+  display: none;
+}
+
+#sidebar.collapsed .team-add button {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  font-size: 1.5rem;
+}
+
+#sidebar.collapsed .team-item {
+  padding: 10px 4px;
+  border-radius: 8px;
+  justify-content: center;
+}
+
+#sidebar.collapsed .team-item .team-id {
+  width: 100%;
+  text-align: center;
+  margin: 0;
+  padding: 4px;
+  font-size: 0.65rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+#sidebar.collapsed .team-item span:nth-child(2),
+/* Name */
+#sidebar.collapsed .team-item .badge {
+  display: none;
+}
+
+#sidebar.collapsed .btn-stock,
+#sidebar.collapsed .btn-sidebar,
+#sidebar.collapsed .sidebar-footer button {
+  padding: 12px 0;
+  margin: 4px 0;
+  text-align: center;
+  font-size: 1.25rem;
+  border-bottom: none;
+}
+
+#sidebar.collapsed .btn-stock span,
+#sidebar.collapsed .sidebar-footer button span {
+  display: none;
+}
+
+#sidebar.collapsed {
+  overflow-x: hidden;
+}
+
 /* ── Responsive ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   body {
