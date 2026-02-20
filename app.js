@@ -1,7 +1,8 @@
 (() => {
     'use strict';
 
-    // ── Full Component Catalog (105 items) ─────────────────
+    // ── Catalog ────────────────────────────────────────────
+    // (Same catalog as before, 105 items)
     const CATALOG = [
         {
             cat: "Development Boards", items: [
@@ -158,14 +159,13 @@
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
 
     // ── Storage helpers ────────────────────────────────────
-    const KEY = 'comp_tracker_v7';
+    const KEY = 'comp_tracker_v8';
     function load() {
         try {
             const d = JSON.parse(localStorage.getItem(KEY)) || { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 };
             if (!d.meta) d.meta = {};
             if (!d.history) d.history = [];
             if (typeof d.dateCounter === 'undefined') d.dateCounter = 0;
-
             // Migration: assign IDs to existing teams
             d.order.forEach(name => {
                 if (!d.meta[name]) {
@@ -173,7 +173,6 @@
                     d.meta[name] = { id: generateId(d.dateCounter) };
                 }
             });
-
             return d;
         }
         catch { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 }; }
@@ -187,12 +186,23 @@
     let data = load();
     let activeTeam = null;
 
-    // ── Date helpers ───────────────────────────────────────
+    // ── Date Format ────────────────────────────────────────
     function toDateKey(d) { return d.toISOString().slice(0, 10); }
+
     function formatDate(key) {
-        const d = new Date(key + 'T00:00:00');
-        return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        // '2026-02-19' -> "Thursday, February 19, 2026"
+        if (!key) return 'Unknown Date';
+        const parts = key.split('-');
+        // Construct date in local timezone to avoid off-by-one errors
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return d.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
     }
+
     function todayKey() { return toDateKey(new Date()); }
 
     // ── DOM refs ───────────────────────────────────────────
@@ -242,7 +252,6 @@
         });
     }
 
-    // ── Helper: Parse ID from Input ────────────────────────
     function getSelectedId() {
         const val = componentSelect.value.trim();
         if (!val) return null;
@@ -286,6 +295,8 @@
             const totalQty = items.reduce((s, c) => s + c.qty, 0);
             const meta = data.meta[name] || { id: '???' };
 
+            // Using standard team item logic (SVG removed from JS, handled by CSS/HTML structure)
+            // Team ID + Name + Badge
             d.innerHTML = `<span class="team-id">${meta.id}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>`
                 + (totalQty ? `<span class="badge">${totalQty}</span>` : '');
@@ -298,6 +309,8 @@
         activeTeam = name;
         emptyState.classList.add('hidden');
         teamView.classList.remove('hidden');
+
+        // Clean refresh animation
         teamView.style.animation = 'none';
         void teamView.offsetWidth;
         teamView.style.animation = '';
@@ -328,12 +341,12 @@
         teamNameInput.value = '';
         renderTeams();
         selectTeam(name);
-        toast(`Team "${name}" added (${data.meta[name].id})`);
+        toast(`Team "${name}" added`);
     }
 
     function deleteTeam() {
         if (!activeTeam) return;
-        if (!confirm(`Delete team "${activeTeam}" and all its components?`)) return;
+        if (!confirm(`Delete team "${activeTeam}"?`)) return;
 
         delete data.teams[activeTeam];
         delete data.meta[activeTeam];
@@ -348,7 +361,7 @@
         toast(`Team "${old}" deleted`, 'danger');
     }
 
-    // ── Log component (TAKE) ───────────────────────────────
+    // ── Log component ──────────────────────────────────────
     function logComponent() {
         if (!activeTeam) return;
         const itemId = getSelectedId();
@@ -357,7 +370,7 @@
         const qty = parseInt(quantityInput.value, 10);
         if (!qty || qty < 1) return toast('Qty must be at least 1', 'danger');
         const remaining = getRemaining(itemId);
-        if (qty > remaining) return toast(`Only ${remaining} left in stock!`, 'danger');
+        if (qty > remaining) return toast(`Only ${remaining} left`, 'danger');
 
         const now = new Date();
         const dateKey = toDateKey(now);
@@ -371,22 +384,12 @@
             existing.time = now.toISOString();
         } else {
             data.teams[activeTeam].push({
-                uid,
-                itemId,
-                qty,
-                date: dateKey,
-                time: now.toISOString()
+                uid, itemId, qty, date: dateKey, time: now.toISOString()
             });
         }
 
         data.history.push({
-            type: 'take',
-            uid,
-            itemId,
-            qty,
-            date: dateKey,
-            time: now.toISOString(),
-            team: activeTeam
+            type: 'take', uid, itemId, qty, date: dateKey, time: now.toISOString(), team: activeTeam
         });
 
         save(data);
@@ -398,7 +401,6 @@
         toast(`${qty}\u00D7 ${ITEM_MAP[itemId].name} logged`);
     }
 
-    // ── Log component (RETURN) ─────────────────────────────
     function returnItem(uid, currentQty) {
         if (!activeTeam) return;
         let qtyToReturn = prompt(`Return how many? (Max: ${currentQty})`, currentQty);
@@ -455,8 +457,9 @@
 
         dates.forEach(dk => {
             const dateRow = document.createElement('tr');
+            // Date row without emoji
             dateRow.innerHTML = `<td colspan="5" style="padding:14px 14px 6px;border:none;">
-      <span class="date-stamp">\uD83D\uDCC5 ${formatDate(dk)}</span>
+      <span class="date-stamp">${formatDate(dk)}</span>
     </td>`;
             inventoryBody.appendChild(dateRow);
 
@@ -471,19 +474,14 @@
                 tr.innerHTML = `
         <td>${idx}</td>
         <td>${esc(name)}</td>
-        <td><div class="qty-cell">
-          <span class="qty-val">${item.qty}</span>
-        </div></td>
+        <td><div class="qty-cell"><span class="qty-val">${item.qty}</span></div></td>
         <td style="color:var(--text-dim)">${ts}</td>
-        <td>
-          <button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">\u21A9 Return</button>
-        </td>`;
+        <td><button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button></td>`;
                 inventoryBody.appendChild(tr);
             });
         });
     }
 
-    // ── Delegate clicks in inventory ───────────────────────
     inventoryBody.addEventListener('click', e => {
         const rb = e.target.closest('.return-btn');
         if (rb) return returnItem(rb.dataset.uid, parseInt(rb.dataset.qty));
@@ -491,7 +489,7 @@
 
     componentSelect.addEventListener('input', updateStockHint);
 
-    // ── Export CSV (Full History) ──────────────────────────
+    // ── Export CSV ─────────────────────────────────────────
     function exportCSV() {
         if (!data.history.length) return toast('No history', 'info');
         let csv = 'Type,Team ID,Team Name,Component,Qty,Date,Time\n';
@@ -513,7 +511,7 @@
         toast('Full History CSV exported');
     }
 
-    // ── Summary modal ──────────────────────────────────────
+    // ── Modals ─────────────────────────────────────────────
     function showSummary() {
         if (!data.order.length) return toast('No teams', 'info');
         let total = 0, html = '';
@@ -521,8 +519,8 @@
             const meta = data.meta[team] || { id: '' };
             const items = data.teams[team] || [];
             if (!items.length) {
-                html += `<div class="summary-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)}</h4>
-        <p style="color:var(--text-dim);font-size:.85rem">No components currently checked out.</p></div>`;
+                html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)}</h4>
+        <p style="color:var(--text-dim);font-size:.85rem">No components.</p></div>`;
                 return;
             }
             const agg = {};
@@ -537,15 +535,14 @@
                 rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${qty}</td></tr>`;
             });
             total += tq;
-            html += `<div class="summary-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
+            html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
       <table><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         });
-        html += `<div class="summary-total">Current Total In Circulation: <span>${total} components</span></div>`;
+        html += `<div class="summary-total">Total In Circulation: <span>${total}</span></div>`;
         summaryContent.innerHTML = html;
         summaryModal.classList.remove('hidden');
     }
 
-    // ── Stock modal ────────────────────────────────────────
     function showStock(filter = '') {
         let html = '';
         const f = filter.toLowerCase();
@@ -566,7 +563,7 @@
         stockContent.innerHTML = html;
     }
 
-    // ── Daily Log modal (History View) ─────────────────────
+    // ── Daily Log ──────────────────────────────────────────
     let dailyDate = todayKey();
 
     function showDaily() {
@@ -576,7 +573,7 @@
         const teamsToday = [...new Set(events.map(e => e.team))];
 
         if (!teamsToday.length) {
-            html = '<p class="daily-none">No activity on this date.</p>';
+            html = '<p class="daily-none" style="text-align:center;color:#64748b;padding:24px">No activity recorded for this date.</p>';
         } else {
             teamsToday.forEach(team => {
                 const meta = data.meta[team] || { id: '' };
@@ -594,7 +591,7 @@
           <td>${isReturn ? '<span class="badge-returned">RETURNED</span>' : '<span style="color:var(--amity-blue);font-size:.7rem;font-weight:700">TAKEN</span>'}</td>
         </tr>`;
                 });
-                html += `<div class="daily-team"><h4><span class="dot"></span>[${meta.id}] ${esc(team)}</h4>
+                html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)}</h4>
         <table><thead><tr><th>Component</th><th>Qty</th><th>Time</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
             });
         }
@@ -619,10 +616,7 @@
         });
     }
 
-    // ── Utils ──────────────────────────────────────────────
-    function esc(s) {
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
     // ── Event Bindings ─────────────────────────────────────
     addTeamBtn.addEventListener('click', addTeam);
@@ -631,16 +625,13 @@
     logComponentBtn.addEventListener('click', logComponent);
     quantityInput.addEventListener('keydown', e => { if (e.key === 'Enter') logComponent(); });
     exportBtn.addEventListener('click', exportCSV);
-
     summaryBtn.addEventListener('click', showSummary);
     closeSummary.addEventListener('click', () => summaryModal.classList.add('hidden'));
     summaryModal.addEventListener('click', e => { if (e.target === summaryModal) summaryModal.classList.add('hidden'); });
-
     stockBtn.addEventListener('click', () => { stockSearch.value = ''; showStock(); stockModal.classList.remove('hidden'); });
     closeStock.addEventListener('click', () => stockModal.classList.add('hidden'));
     stockModal.addEventListener('click', e => { if (e.target === stockModal) stockModal.classList.add('hidden'); });
     stockSearch.addEventListener('input', () => showStock(stockSearch.value));
-
     dailyBtn.addEventListener('click', () => { dailyDate = todayKey(); showDaily(); dailyModal.classList.remove('hidden'); });
     closeDaily.addEventListener('click', () => dailyModal.classList.add('hidden'));
     dailyModal.addEventListener('click', e => { if (e.target === dailyModal) dailyModal.classList.add('hidden'); });
