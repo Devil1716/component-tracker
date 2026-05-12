@@ -50,6 +50,104 @@ body {
   overflow: hidden;
 }
 
+body.auth-locked {
+  display: block;
+  overflow: hidden;
+}
+
+body.auth-locked #sidebar,
+body.auth-locked #main,
+body.auth-locked .modal-overlay {
+  display: none !important;
+}
+
+.login-view {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(27, 50, 93, .94), rgba(14, 32, 68, .98)),
+    #1B325D;
+}
+
+.login-panel {
+  width: min(420px, 100%);
+  padding: 32px;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .28);
+}
+
+.login-brand {
+  margin-bottom: 24px;
+}
+
+.login-brand h1 {
+  color: var(--amity-blue);
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.login-brand p {
+  color: var(--text-dim);
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.login-fields {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.login-fields label {
+  color: var(--amity-blue);
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.login-fields input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  outline: none;
+}
+
+.login-fields input:focus {
+  border-color: var(--amity-blue);
+  box-shadow: 0 0 0 3px rgba(27, 50, 93, 0.1);
+}
+
+.btn-login {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--amity-blue);
+  color: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.btn-login:hover {
+  background: #2c4a80;
+}
+
+.login-error {
+  min-height: 20px;
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: .86rem;
+  text-align: center;
+}
+
 /* ── Components ─────────────────────────────────────────── */
 .glass {
   background: var(--surface);

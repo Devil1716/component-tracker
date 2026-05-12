@@ -168,6 +168,9 @@
     const FIREBASE_STATE_PATH = 'componentTracker/state';
     const BRANCHES = ['CSE', 'AIML', 'ROBOTICS', 'ECE', 'BIOTECH'];
     const MEMBER_COUNT = 5;
+    const AUTH_SESSION_KEY = 'component_tracker_admin_authenticated';
+    const ADMIN_USERNAME = 'Admin';
+    const ADMIN_PASSWORD_HASH = 'f4be6304187fe50f86c8ab2bd456c59425f2844f1990d6f47ddee184c4ec9f60';
 
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
@@ -382,6 +385,8 @@
 
     // ── DOM refs ───────────────────────────────────────────
     const $ = s => document.querySelector(s);
+    const loginView = $('#loginView'), loginForm = $('#loginForm');
+    const loginUsername = $('#loginUsername'), loginPassword = $('#loginPassword'), loginError = $('#loginError');
     const teamNameInput = $('#teamNameInput'), addTeamBtn = $('#addTeamBtn'), teamListEl = $('#teamList');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
@@ -419,6 +424,48 @@
         if (!syncStatus) return;
         syncStatus.textContent = message;
         syncStatus.className = `sync-status ${type}`;
+    }
+
+    async function sha256(text) {
+        const bytes = new TextEncoder().encode(text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+        return [...new Uint8Array(hashBuffer)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function unlockApp() {
+        document.body.classList.remove('auth-locked');
+        loginView.classList.add('hidden');
+        setSyncStatus('Connecting cloud sync...', 'info');
+        renderTeams();
+        populateDataList();
+        connectFirebase();
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        loginError.textContent = '';
+        const username = loginUsername.value.trim();
+        const passwordHash = await sha256(loginPassword.value);
+        if (username === ADMIN_USERNAME && passwordHash === ADMIN_PASSWORD_HASH) {
+            sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+            loginPassword.value = '';
+            unlockApp();
+        } else {
+            loginError.textContent = 'Invalid username or password.';
+            loginPassword.value = '';
+            loginPassword.focus();
+        }
+    }
+
+    function initAuth() {
+        loginForm.addEventListener('submit', handleLogin);
+        if (sessionStorage.getItem(AUTH_SESSION_KEY) === 'true') {
+            unlockApp();
+        } else {
+            document.body.classList.add('auth-locked');
+            loginView.classList.remove('hidden');
+            loginUsername.focus();
+        }
     }
 
     // ── Populate DataList ──────────────────────────────────
@@ -895,8 +942,5 @@
 
     // ── Init ───────────────────────────────────────────────
     initToast();
-    setSyncStatus('Connecting cloud sync...', 'info');
-    renderTeams();
-    populateDataList();
-    connectFirebase();
+    initAuth();
 })();

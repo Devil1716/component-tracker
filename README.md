@@ -6,6 +6,7 @@ The app is a static browser app: there is no server, database, login, or build s
 
 ## Features
 
+- Admin-only login gate with no registration screen
 - Team creation with automatic IDs like `IL001`
 - Team rename support
 - Five member profile fields per team: name, SEN, and branch
@@ -66,6 +67,15 @@ The `Release Component Tracker` GitHub Action will create a GitHub Release and a
 The app keeps a local browser copy under `comp_tracker_v8` and syncs the shared copy to Firebase Realtime Database at `componentTracker/state`.
 
 Existing local data is not cleared. The first time an existing user opens the updated hosted app, their local data is merged into Firebase and marked as migrated on that device. After that, the hosted link receives live database updates.
+
+Default admin login:
+
+```text
+Username: Admin
+Password: Amitylab414
+```
+
+This client-side login hides the tracker from casual access. For real production security, pair it with Firebase Authentication and private database rules.
 
 If Firebase returns `Permission denied`, update the Realtime Database rules in the Firebase console. For open lab usage during testing:
 
