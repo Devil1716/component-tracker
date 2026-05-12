@@ -102,6 +102,23 @@
                 <button class="btn-delete" id="deleteTeamBtn">Delete Team</button>
             </div>
 
+            <div class="team-details glass">
+                <div class="details-top">
+                    <div>
+                        <h3>Team Details</h3>
+                        <p id="syncStatus">Sync starting...</p>
+                    </div>
+                    <div class="rename-row">
+                        <input type="text" id="teamRenameInput" placeholder="Team name">
+                        <button class="btn-rename" id="renameTeamBtn">Rename</button>
+                    </div>
+                </div>
+
+                <div class="members-grid" id="membersGrid">
+                    <!-- Member fields populated by JS -->
+                </div>
+            </div>
+
             <div class="component-entry glass">
                 <h3>Add Component</h3>
                 <div class="entry-row">

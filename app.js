@@ -155,29 +155,66 @@
         }
     ];
 
+    const FIREBASE_CONFIG = {
+        apiKey: "AIzaSyCVWxIy0biqmbag24g9XlPVPSPqWbB_0xI",
+        authDomain: "component-tracker-cd000.firebaseapp.com",
+        databaseURL: "https://component-tracker-cd000-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "component-tracker-cd000",
+        storageBucket: "component-tracker-cd000.firebasestorage.app",
+        messagingSenderId: "509342024752",
+        appId: "1:509342024752:web:9951608f1e042a5f2e99f5",
+        measurementId: "G-0PY6GD6SGB"
+    };
+    const FIREBASE_STATE_PATH = 'componentTracker/state';
+    const BRANCHES = ['CSE', 'AIML', 'ROBOTICS', 'ECE', 'BIOTECH'];
+    const MEMBER_COUNT = 5;
+
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
 
     // ── Storage helpers ────────────────────────────────────
     const KEY = 'comp_tracker_v8';
+    const MIGRATION_KEY = `${KEY}_firebase_migrated_v1`;
+    function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
+    function blankMember() { return { name: '', sen: '', branch: '' }; }
+    function normalizeMembers(members) {
+        const out = Array.isArray(members) ? members.slice(0, MEMBER_COUNT) : [];
+        while (out.length < MEMBER_COUNT) out.push(blankMember());
+        return out.map(m => ({
+            name: String(m?.name || ''),
+            sen: String(m?.sen || ''),
+            branch: BRANCHES.includes(m?.branch) ? m.branch : ''
+        }));
+    }
+    function normalizeData(raw) {
+        const d = raw && typeof raw === 'object' ? raw : emptyData();
+        d.teams = d.teams && typeof d.teams === 'object' ? d.teams : {};
+        d.order = Array.isArray(d.order) ? d.order.filter(name => typeof name === 'string') : [];
+        d.meta = d.meta && typeof d.meta === 'object' ? d.meta : {};
+        d.history = Array.isArray(d.history) ? d.history : [];
+        d.dateCounter = Number.isFinite(d.dateCounter) ? d.dateCounter : 0;
+        d.schemaVersion = 2;
+        d.order.forEach(name => {
+            if (!Array.isArray(d.teams[name])) d.teams[name] = [];
+            if (!d.meta[name]) {
+                d.dateCounter++;
+                d.meta[name] = { id: generateId(d.dateCounter) };
+            }
+            d.meta[name].members = normalizeMembers(d.meta[name].members);
+        });
+        return d;
+    }
     function load() {
         try {
-            const d = JSON.parse(localStorage.getItem(KEY)) || { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 };
-            if (!d.meta) d.meta = {};
-            if (!d.history) d.history = [];
-            if (typeof d.dateCounter === 'undefined') d.dateCounter = 0;
-            // Migration: assign IDs to existing teams
-            d.order.forEach(name => {
-                if (!d.meta[name]) {
-                    d.dateCounter++;
-                    d.meta[name] = { id: generateId(d.dateCounter) };
-                }
-            });
-            return d;
+            return normalizeData(JSON.parse(localStorage.getItem(KEY)) || emptyData());
         }
-        catch { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0 }; }
+        catch { return emptyData(); }
     }
-    function save(d) { localStorage.setItem(KEY, JSON.stringify(d)); }
+    function save(d, options = {}) {
+        d.updatedAt = new Date().toISOString();
+        localStorage.setItem(KEY, JSON.stringify(d));
+        if (!options.remote && firebaseReady) queueRemoteSave();
+    }
 
     function generateId(num) {
         return 'IL' + String(num).padStart(3, '0');
@@ -185,6 +222,10 @@
 
     let data = load();
     let activeTeam = null;
+    let firebaseReady = false;
+    let firebaseRef = null;
+    let firebaseSet = null;
+    let firebaseSaveTimer = null;
 
     // ── Date Format ────────────────────────────────────────
     function toDateKey(d) {
@@ -210,11 +251,142 @@
 
     function todayKey() { return toDateKey(new Date()); }
 
+    function hasLocalContent(d) {
+        return Boolean(d.order.length || d.history.length);
+    }
+
+    function mergeRecords(a = [], b = [], keyFn) {
+        const map = new Map();
+        [...a, ...b].forEach(item => {
+            const key = keyFn(item);
+            if (!map.has(key)) map.set(key, item);
+        });
+        return [...map.values()];
+    }
+
+    function mergeMemberSlots(remoteMembers, localMembers) {
+        const remote = normalizeMembers(remoteMembers);
+        const local = normalizeMembers(localMembers);
+        return remote.map((member, index) => {
+            const localMember = local[index];
+            return {
+                name: localMember.name || member.name,
+                sen: localMember.sen || member.sen,
+                branch: localMember.branch || member.branch
+            };
+        });
+    }
+
+    function mergeData(remoteRaw, localRaw) {
+        const remote = normalizeData(remoteRaw || emptyData());
+        const local = normalizeData(localRaw || emptyData());
+        const merged = normalizeData(remote);
+        local.order.forEach(name => {
+            if (!merged.order.includes(name)) merged.order.push(name);
+            merged.teams[name] = mergeRecords(
+                merged.teams[name] || [],
+                local.teams[name] || [],
+                item => item.uid || `${item.itemId}-${item.date}-${item.time}`
+            );
+            merged.meta[name] = {
+                ...(merged.meta[name] || {}),
+                ...(local.meta[name] || {}),
+                id: (merged.meta[name]?.id || local.meta[name]?.id || ''),
+                members: mergeMemberSlots(merged.meta[name]?.members, local.meta[name]?.members)
+            };
+        });
+        merged.history = mergeRecords(
+            merged.history,
+            local.history,
+            item => `${item.type}-${item.uid || ''}-${item.team}-${item.itemId}-${item.time}`
+        ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+        merged.dateCounter = Math.max(remote.dateCounter || 0, local.dateCounter || 0);
+        return normalizeData(merged);
+    }
+
+    function queueRemoteSave() {
+        if (!firebaseReady || !firebaseSet || !firebaseRef) return;
+        clearTimeout(firebaseSaveTimer);
+        firebaseSaveTimer = setTimeout(() => {
+            firebaseSet(firebaseRef, data).catch(err => {
+                setSyncStatus('Cloud sync failed. Local copy saved.', 'danger');
+                console.error('Firebase save failed', err);
+            });
+        }, 350);
+    }
+
+    function renderAll() {
+        if (activeTeam && !data.teams[activeTeam]) {
+            activeTeam = null;
+            teamView.classList.add('hidden');
+            emptyState.classList.remove('hidden');
+        }
+        renderTeams();
+        if (activeTeam) selectTeam(activeTeam, { keepInputs: true });
+        populateDataList();
+    }
+
+    async function connectFirebase() {
+        if (location.protocol === 'file:') {
+            setSyncStatus('Offline file mode. Open the hosted link for cloud sync.', 'danger');
+            return;
+        }
+
+        try {
+            const appModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
+            const dbModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js');
+            const app = appModule.initializeApp(FIREBASE_CONFIG);
+            const db = dbModule.getDatabase(app);
+            firebaseRef = dbModule.ref(db, FIREBASE_STATE_PATH);
+            firebaseSet = dbModule.set;
+
+            const snapshot = await dbModule.get(firebaseRef);
+            const remoteData = snapshot.exists() ? snapshot.val() : null;
+            const localData = load();
+            const alreadyMigrated = localStorage.getItem(MIGRATION_KEY) === 'true';
+
+            if (!remoteData && hasLocalContent(localData)) {
+                data = normalizeData(localData);
+                await firebaseSet(firebaseRef, data);
+                localStorage.setItem(MIGRATION_KEY, 'true');
+            } else if (remoteData && hasLocalContent(localData) && !alreadyMigrated) {
+                data = mergeData(remoteData, localData);
+                await firebaseSet(firebaseRef, data);
+                localStorage.setItem(MIGRATION_KEY, 'true');
+            } else if (remoteData) {
+                data = normalizeData(remoteData);
+                save(data, { remote: true });
+            }
+
+            firebaseReady = true;
+            setSyncStatus('Cloud sync connected', 'success');
+            renderAll();
+
+            dbModule.onValue(firebaseRef, snap => {
+                if (!snap.exists()) return;
+                const next = normalizeData(snap.val());
+                if (JSON.stringify(next) === JSON.stringify(data)) return;
+                data = next;
+                save(data, { remote: true });
+                setSyncStatus('Cloud sync connected', 'success');
+                renderAll();
+            }, err => {
+                setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
+                console.error('Firebase listener failed', err);
+            });
+        } catch (err) {
+            setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
+            console.error('Firebase connection failed', err);
+        }
+    }
+
     // ── DOM refs ───────────────────────────────────────────
     const $ = s => document.querySelector(s);
     const teamNameInput = $('#teamNameInput'), addTeamBtn = $('#addTeamBtn'), teamListEl = $('#teamList');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
+    const teamRenameInput = $('#teamRenameInput'), renameTeamBtn = $('#renameTeamBtn');
+    const membersGrid = $('#membersGrid'), syncStatus = $('#syncStatus');
     const componentList = $('#componentList'); // DATALIST
     const quantityInput = $('#quantityInput'), logComponentBtn = $('#logComponentBtn');
     const inventoryBody = $('#inventoryBody'), noItemsMsg = $('#noItemsMsg');
@@ -241,6 +413,12 @@
         e.textContent = m;
         tc.appendChild(e);
         setTimeout(() => { e.style.opacity = '0'; setTimeout(() => e.remove(), 300); }, 2400);
+    }
+
+    function setSyncStatus(message, type = 'info') {
+        if (!syncStatus) return;
+        syncStatus.textContent = message;
+        syncStatus.className = `sync-status ${type}`;
     }
 
     // ── Populate DataList ──────────────────────────────────
@@ -291,6 +469,61 @@
     }
 
     // ── Render sidebar ─────────────────────────────────────
+    function renderMembers() {
+        if (!activeTeam) return;
+        const meta = data.meta[activeTeam] || {};
+        const members = normalizeMembers(meta.members);
+        membersGrid.innerHTML = members.map((member, index) => {
+            const branchOptions = [''].concat(BRANCHES).map(branch => {
+                const label = branch || 'Select branch';
+                return `<option value="${esc(branch)}"${member.branch === branch ? ' selected' : ''}>${label}</option>`;
+            }).join('');
+            return `<div class="member-card" data-index="${index}">
+                <div class="member-label">Member ${index + 1}</div>
+                <input type="text" data-field="name" value="${esc(member.name)}" placeholder="Name">
+                <input type="text" data-field="sen" value="${esc(member.sen)}" placeholder="SEN">
+                <select data-field="branch">${branchOptions}</select>
+            </div>`;
+        }).join('');
+    }
+
+    function updateMember(target) {
+        if (!activeTeam) return;
+        const card = target.closest('.member-card');
+        if (!card) return;
+        const index = Number(card.dataset.index);
+        const field = target.dataset.field;
+        if (!Number.isInteger(index) || !field) return;
+        const meta = data.meta[activeTeam] || { members: normalizeMembers() };
+        meta.members = normalizeMembers(meta.members);
+        meta.members[index][field] = target.value.trim();
+        data.meta[activeTeam] = meta;
+        save(data);
+        setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
+    }
+
+    function renameTeam() {
+        if (!activeTeam) return;
+        const oldName = activeTeam;
+        const newName = teamRenameInput.value.trim();
+        if (!newName) return toast('Enter a team name', 'danger');
+        if (newName === oldName) return toast('Team name unchanged', 'info');
+        if (data.teams[newName]) return toast('Team already exists', 'danger');
+
+        data.teams[newName] = data.teams[oldName] || [];
+        data.meta[newName] = data.meta[oldName] || { id: '???', members: normalizeMembers() };
+        delete data.teams[oldName];
+        delete data.meta[oldName];
+        data.order = data.order.map(name => name === oldName ? newName : name);
+        data.history.forEach(item => {
+            if (item.team === oldName) item.team = newName;
+        });
+        activeTeam = newName;
+        save(data);
+        selectTeam(newName);
+        toast(`Renamed team to "${newName}"`);
+    }
+
     function renderTeams() {
         teamListEl.innerHTML = '';
         data.order.forEach(name => {
@@ -310,7 +543,7 @@
         });
     }
 
-    function selectTeam(name) {
+    function selectTeam(name, options = {}) {
         activeTeam = name;
         emptyState.classList.add('hidden');
         teamView.classList.remove('hidden');
@@ -322,13 +555,17 @@
 
         const meta = data.meta[name] || { id: '???' };
         teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${meta.id}</span>${esc(name)}`;
+        teamRenameInput.value = name;
 
         renderTeams();
+        renderMembers();
         renderInventory();
         populateDataList();
-        quantityInput.value = 1;
-        componentSelect.value = '';
-        stockHint.innerHTML = '';
+        if (!options.keepInputs) {
+            quantityInput.value = 1;
+            componentSelect.value = '';
+            stockHint.innerHTML = '';
+        }
     }
 
     // ── Add / delete team ──────────────────────────────────
@@ -340,7 +577,7 @@
         data.teams[name] = [];
         data.order.push(name);
         data.dateCounter++;
-        data.meta[name] = { id: generateId(data.dateCounter) };
+        data.meta[name] = { id: generateId(data.dateCounter), members: normalizeMembers() };
 
         save(data);
         teamNameInput.value = '';
@@ -635,6 +872,10 @@
     // ── Event Bindings ─────────────────────────────────────
     addTeamBtn.addEventListener('click', addTeam);
     teamNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTeam(); });
+    renameTeamBtn.addEventListener('click', renameTeam);
+    teamRenameInput.addEventListener('keydown', e => { if (e.key === 'Enter') renameTeam(); });
+    membersGrid.addEventListener('change', e => updateMember(e.target));
+    membersGrid.addEventListener('blur', e => updateMember(e.target), true);
     deleteTeamBtn.addEventListener('click', deleteTeam);
     logComponentBtn.addEventListener('click', logComponent);
     quantityInput.addEventListener('keydown', e => { if (e.key === 'Enter') logComponent(); });
@@ -654,6 +895,8 @@
 
     // ── Init ───────────────────────────────────────────────
     initToast();
+    setSyncStatus('Connecting cloud sync...', 'info');
     renderTeams();
     populateDataList();
+    connectFirebase();
 })();

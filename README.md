@@ -7,12 +7,15 @@ The app is a static browser app: there is no server, database, login, or build s
 ## Features
 
 - Team creation with automatic IDs like `IL001`
+- Team rename support
+- Five member profile fields per team: name, SEN, and branch
 - Component catalog with stock limits and remaining-stock hints
 - Checkout and return tracking by team
 - Daily activity log
 - Stock inventory modal with search
 - Summary view across all teams
 - CSV export of the full activity history
+- Firebase Realtime Database sync for everyone opening the hosted link
 - Installable desktop PWA when hosted through GitHub Pages
 
 ## Use It Online
@@ -60,5 +63,21 @@ The `Release Component Tracker` GitHub Action will create a GitHub Release and a
 
 ## Data Storage
 
-All tracker data is stored in the browser's local storage under `comp_tracker_v8`. Clearing browser data will remove saved teams and logs. Use CSV export before resetting a browser or moving to another computer.
+The app keeps a local browser copy under `comp_tracker_v8` and syncs the shared copy to Firebase Realtime Database at `componentTracker/state`.
 
+Existing local data is not cleared. The first time an existing user opens the updated hosted app, their local data is merged into Firebase and marked as migrated on that device. After that, the hosted link receives live database updates.
+
+If Firebase returns `Permission denied`, update the Realtime Database rules in the Firebase console. For open lab usage during testing:
+
+```json
+{
+  "rules": {
+    "componentTracker": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
+```
+
+For production, add authentication before making the database public.

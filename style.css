@@ -554,6 +554,100 @@ tr:hover {
   font-size: .85rem;
 }
 
+.team-details {
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.details-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.team-details h3 {
+  color: var(--amity-blue);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: .85rem;
+  margin-bottom: 6px;
+  padding-left: 12px;
+  border-left: 4px solid var(--amity-gold);
+}
+
+.sync-status {
+  color: var(--text-dim);
+  font-size: .82rem;
+}
+
+.sync-status.success {
+  color: var(--success);
+}
+
+.sync-status.danger {
+  color: var(--danger);
+}
+
+.rename-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.rename-row input,
+.member-card input,
+.member-card select {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  font-size: .9rem;
+  outline: none;
+  background: #fff;
+  min-width: 0;
+}
+
+.rename-row input:focus,
+.member-card input:focus,
+.member-card select:focus {
+  border-color: var(--amity-blue);
+  box-shadow: 0 0 0 3px rgba(27, 50, 93, 0.1);
+}
+
+.btn-rename {
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--amity-blue);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.members-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.member-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.member-label {
+  color: var(--amity-blue);
+  font-size: .75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .stock-hint span,
 .sremain {
   font-weight: 800;
@@ -778,6 +872,12 @@ tr:hover {
   .team-header {
     align-items: flex-start;
     gap: 12px;
+    flex-direction: column;
+  }
+
+  .details-top,
+  .rename-row {
+    align-items: stretch;
     flex-direction: column;
   }
 
