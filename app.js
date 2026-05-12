@@ -187,7 +187,12 @@
     let activeTeam = null;
 
     // ── Date Format ────────────────────────────────────────
-    function toDateKey(d) { return d.toISOString().slice(0, 10); }
+    function toDateKey(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
 
     function formatDate(key) {
         // '2026-02-19' -> "Thursday, February 19, 2026"
@@ -494,12 +499,21 @@
         if (!data.history.length) return toast('No history', 'info');
         let csv = 'Type,Team ID,Team Name,Component,Qty,Date,Time\n';
         const sorted = [...data.history].sort((a, b) => b.time.localeCompare(a.time));
+        const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
         sorted.forEach(h => {
             const meta = data.meta[h.team] || { id: '' };
             const it = ITEM_MAP[h.itemId];
             const d = new Date(h.time);
             const type = h.type === 'return' ? 'RETURNED' : 'TAKEN';
-            csv += `"${type}","${meta.id}","${h.team}","${it ? it.name : '?'}",${h.qty},"${h.date}","${d.toLocaleTimeString()}"\n`;
+            csv += [
+                csvCell(type),
+                csvCell(meta.id),
+                csvCell(h.team),
+                csvCell(it ? it.name : '?'),
+                h.qty,
+                csvCell(h.date),
+                csvCell(d.toLocaleTimeString())
+            ].join(',') + '\n';
         });
         const b = new Blob([csv], { type: 'text/csv' });
         const u = URL.createObjectURL(b);

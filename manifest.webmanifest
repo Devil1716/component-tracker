@@ -1,0 +1,19 @@
+{
+  "name": "Amity Component Tracker",
+  "short_name": "Component Tracker",
+  "description": "Track lab component checkouts, returns, stock, and team activity.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fa",
+  "theme_color": "#1B325D",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

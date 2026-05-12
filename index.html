@@ -5,6 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amity Component Tracker</title>
+    <meta name="description" content="A lightweight desktop-friendly component checkout tracker for lab teams.">
+    <meta name="theme-color" content="#1B325D">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="assets/icon.svg">
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -165,15 +170,22 @@
                 <button class="modal-close" id="closeDaily">&times;</button>
             </div>
             <div class="date-nav">
-                <button class="date-nav-btn" id="prevDay">◀</button>
+                <button class="date-nav-btn" id="prevDay" aria-label="Previous day">&larr;</button>
                 <div class="date-label" id="currentDate">Today</div>
-                <button class="date-nav-btn" id="nextDay">▶</button>
+                <button class="date-nav-btn" id="nextDay" aria-label="Next day">&rarr;</button>
             </div>
             <div class="modal-body" id="dailyContent"></div>
         </div>
     </div>
 
     <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            });
+        }
+    </script>
 </body>
 
 </html>

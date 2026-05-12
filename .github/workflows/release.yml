@@ -1,0 +1,33 @@
+name: Release Component Tracker
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release package
+        run: |
+          mkdir -p dist/component-tracker
+          cp index.html style.css app.js manifest.webmanifest sw.js README.md .nojekyll dist/component-tracker/
+          mkdir -p dist/component-tracker/assets
+          cp assets/icon.svg dist/component-tracker/assets/
+          cd dist
+          zip -r component-tracker.zip component-tracker
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/component-tracker.zip
+          generate_release_notes: true
+
