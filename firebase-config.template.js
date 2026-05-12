@@ -1,18 +1,18 @@
 window.COMPONENT_TRACKER_CONFIG = {
     environment: 'production',
     firebase: {
-        apiKey: 'YOUR_FIREBASE_WEB_API_KEY',
-        authDomain: 'YOUR_PROJECT.firebaseapp.com',
-        databaseURL: 'https://YOUR_DATABASE_URL.firebasedatabase.app',
-        projectId: 'YOUR_PROJECT_ID',
-        storageBucket: 'YOUR_PROJECT.appspot.com',
-        messagingSenderId: 'YOUR_SENDER_ID',
-        appId: 'YOUR_APP_ID',
-        measurementId: 'YOUR_MEASUREMENT_ID'
+        apiKey: 'AIzaSyCVWxIy0biqmbag24g9XlPVPSPqWbB_0xI',
+        authDomain: 'component-tracker-cd000.firebaseapp.com',
+        databaseURL: 'https://component-tracker-cd000-default-rtdb.asia-southeast1.firebasedatabase.app',
+        projectId: 'component-tracker-cd000',
+        storageBucket: 'component-tracker-cd000.firebasestorage.app',
+        messagingSenderId: '509342024752',
+        appId: '1:509342024752:web:9951608f1e042a5f2e99f5',
+        measurementId: 'G-0PY6GD6SGB'
     },
     auth: {
-        username: 'Admin',
-        passwordHash: 'SHA_256_PASSWORD_HASH'
+        mode: 'firebase',
+        adminEmail: 'kprasanna@blr.amity.edu'
     },
     databasePaths: {
         production: 'componentTracker/production/state',

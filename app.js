@@ -159,10 +159,10 @@
     const MEMBER_COUNT = 5;
     const RUNTIME_CONFIG = window.COMPONENT_TRACKER_CONFIG || {};
     const AUTH_SESSION_KEY = 'component_tracker_admin_authenticated';
-    const DEFAULT_ADMIN_USERNAME = 'Admin';
-    const DEFAULT_ADMIN_PASSWORD_HASH = 'f4be6304187fe50f86c8ab2bd456c59425f2844f1990d6f47ddee184c4ec9f60';
-    const ADMIN_USERNAME = RUNTIME_CONFIG.auth?.username || DEFAULT_ADMIN_USERNAME;
-    const ADMIN_PASSWORD_HASH = RUNTIME_CONFIG.auth?.passwordHash || DEFAULT_ADMIN_PASSWORD_HASH;
+    const AUTH_MODE = RUNTIME_CONFIG.auth?.mode || 'firebase';
+    const ADMIN_EMAIL = String(RUNTIME_CONFIG.auth?.adminEmail || RUNTIME_CONFIG.auth?.username || '').trim().toLowerCase();
+    const ADMIN_USERNAME = String(RUNTIME_CONFIG.auth?.username || '').trim();
+    const ADMIN_PASSWORD_HASH = String(RUNTIME_CONFIG.auth?.passwordHash || '').trim();
     const APP_ENV = new URLSearchParams(location.search).get('env') === 'test' ? 'testing' : (RUNTIME_CONFIG.environment || 'production');
     const DATABASE_PATHS = RUNTIME_CONFIG.databasePaths || {
         production: 'componentTracker/production/state',
@@ -178,29 +178,60 @@
     const MIGRATION_KEY = `${KEY}_firebase_migrated_${APP_ENV}_v1`;
     function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
     function blankMember() { return { name: '', sen: '', branch: '' }; }
+    function cleanString(value, max = 200) { return String(value ?? '').trim().slice(0, max); }
+    function cleanQuantity(value) {
+        const qty = Number.parseInt(value, 10);
+        return Number.isFinite(qty) && qty > 0 ? Math.min(qty, 9999) : 0;
+    }
+    function cleanItemId(value) {
+        const id = Number.parseInt(value, 10);
+        return ITEM_MAP[id] ? id : 0;
+    }
+    function normalizeCheckout(item) {
+        const itemId = cleanItemId(item?.itemId);
+        const qty = cleanQuantity(item?.qty);
+        if (!itemId || !qty) return null;
+        return {
+            uid: cleanString(item?.uid, 80) || Date.now().toString(36),
+            itemId,
+            qty,
+            date: /^\d{4}-\d{2}-\d{2}$/.test(String(item?.date || '')) ? item.date : todayKey(),
+            time: Number.isNaN(Date.parse(item?.time)) ? new Date().toISOString() : item.time
+        };
+    }
+    function normalizeHistoryEvent(item) {
+        const record = normalizeCheckout(item);
+        if (!record) return null;
+        return {
+            ...record,
+            type: item?.type === 'return' ? 'return' : 'take',
+            team: cleanString(item?.team, 120)
+        };
+    }
     function normalizeMembers(members) {
         const out = Array.isArray(members) ? members.slice(0, MEMBER_COUNT) : [];
         while (out.length < MEMBER_COUNT) out.push(blankMember());
         return out.map(m => ({
-            name: String(m?.name || ''),
-            sen: String(m?.sen || ''),
+            name: cleanString(m?.name, 120),
+            sen: cleanString(m?.sen, 80),
             branch: BRANCHES.includes(m?.branch) ? m.branch : ''
         }));
     }
     function normalizeData(raw) {
         const d = raw && typeof raw === 'object' ? raw : emptyData();
         d.teams = d.teams && typeof d.teams === 'object' ? d.teams : {};
-        d.order = Array.isArray(d.order) ? d.order.filter(name => typeof name === 'string') : [];
+        d.order = Array.isArray(d.order) ? d.order.map(name => cleanString(name, 120)).filter(Boolean) : [];
         d.meta = d.meta && typeof d.meta === 'object' ? d.meta : {};
-        d.history = Array.isArray(d.history) ? d.history : [];
+        d.history = Array.isArray(d.history) ? d.history.map(normalizeHistoryEvent).filter(Boolean) : [];
         d.dateCounter = Number.isFinite(d.dateCounter) ? d.dateCounter : 0;
         d.schemaVersion = 2;
         d.order.forEach(name => {
-            if (!Array.isArray(d.teams[name])) d.teams[name] = [];
+            d.teams[name] = Array.isArray(d.teams[name]) ? d.teams[name].map(normalizeCheckout).filter(Boolean) : [];
             if (!d.meta[name]) {
                 d.dateCounter++;
                 d.meta[name] = { id: generateId(d.dateCounter) };
             }
+            d.meta[name].id = cleanString(d.meta[name].id || generateId(d.dateCounter), 40);
             d.meta[name].members = normalizeMembers(d.meta[name].members);
         });
         return d;
@@ -224,6 +255,9 @@
     let data = load();
     let activeTeam = null;
     let firebaseReady = false;
+    let firebaseApp = null;
+    let firebaseAuth = null;
+    let appUnlocked = false;
     let firebaseRef = null;
     let firebaseSet = null;
     let firebaseSaveTimer = null;
@@ -327,6 +361,39 @@
         populateDataList();
     }
 
+    async function getFirebaseApp() {
+        if (firebaseApp) return firebaseApp;
+        if (!RUNTIME_CONFIG.firebase) throw new Error('Firebase config is missing.');
+        const appModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
+        firebaseApp = appModule.initializeApp(RUNTIME_CONFIG.firebase);
+        return firebaseApp;
+    }
+
+    async function getFirebaseAuth() {
+        if (firebaseAuth) return firebaseAuth;
+        const authModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+        const auth = authModule.getAuth(await getFirebaseApp());
+        firebaseAuth = { authModule, auth };
+        return firebaseAuth;
+    }
+
+    function isAllowedAdminUser(user) {
+        if (!user || !user.email) return false;
+        return Boolean(ADMIN_EMAIL && user.email.toLowerCase() === ADMIN_EMAIL);
+    }
+
+    async function signInFirebaseAdmin(email, password) {
+        if (!ADMIN_EMAIL) throw new Error('Admin Firebase email is not configured.');
+        if (!email || !password) throw new Error('Enter the admin email and password.');
+        const { authModule, auth } = await getFirebaseAuth();
+        await authModule.setPersistence(auth, authModule.browserSessionPersistence);
+        const credential = await authModule.signInWithEmailAndPassword(auth, email, password);
+        if (!isAllowedAdminUser(credential.user)) {
+            await authModule.signOut(auth);
+            throw new Error('This account is not allowed to access this tracker.');
+        }
+    }
+
     async function connectFirebase() {
         if (!RUNTIME_CONFIG.firebase) {
             setSyncStatus('Missing Firebase config. Local copy saved.', 'danger');
@@ -338,9 +405,15 @@
         }
 
         try {
-            const appModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
             const dbModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js');
-            const app = appModule.initializeApp(RUNTIME_CONFIG.firebase);
+            const app = await getFirebaseApp();
+            if (AUTH_MODE === 'firebase') {
+                const { auth } = await getFirebaseAuth();
+                if (!isAllowedAdminUser(auth.currentUser)) {
+                    setSyncStatus('Sign in with the admin Firebase account to sync.', 'danger');
+                    return;
+                }
+            }
             const db = dbModule.getDatabase(app);
             firebaseRef = dbModule.ref(db, FIREBASE_STATE_PATH);
             firebaseSet = dbModule.set;
@@ -437,6 +510,8 @@
     }
 
     function unlockApp() {
+        if (appUnlocked) return;
+        appUnlocked = true;
         document.body.classList.remove('auth-locked');
         loginView.classList.add('hidden');
         setSyncStatus(`Connecting ${APP_ENV} cloud sync...`, 'info');
@@ -449,13 +524,24 @@
         e.preventDefault();
         loginError.textContent = '';
         const username = loginUsername.value.trim();
-        const passwordHash = await sha256(loginPassword.value);
-        if (username === ADMIN_USERNAME && passwordHash === ADMIN_PASSWORD_HASH) {
-            sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        const password = loginPassword.value;
+        try {
+            if (AUTH_MODE === 'firebase') {
+                await signInFirebaseAdmin(username, password);
+            } else {
+                if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+                    throw new Error('Admin login is not configured.');
+                }
+                const passwordHash = await sha256(password);
+                if (username !== ADMIN_USERNAME || passwordHash !== ADMIN_PASSWORD_HASH) {
+                    throw new Error('Invalid username or password.');
+                }
+                sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+            }
             loginPassword.value = '';
             unlockApp();
-        } else {
-            loginError.textContent = 'Invalid username or password.';
+        } catch (err) {
+            loginError.textContent = err?.message || 'Invalid username or password.';
             loginPassword.value = '';
             loginPassword.focus();
         }
@@ -463,11 +549,23 @@
 
     function initAuth() {
         loginForm.addEventListener('submit', handleLogin);
-        if (sessionStorage.getItem(AUTH_SESSION_KEY) === 'true') {
+        document.body.classList.add('auth-locked');
+        loginView.classList.remove('hidden');
+        if (AUTH_MODE === 'firebase') {
+            getFirebaseAuth()
+                .then(({ authModule, auth }) => {
+                    authModule.onAuthStateChanged(auth, user => {
+                        if (isAllowedAdminUser(user)) unlockApp();
+                        else loginUsername.focus();
+                    });
+                })
+                .catch(() => {
+                    loginError.textContent = 'Firebase admin login is not configured.';
+                    loginUsername.focus();
+                });
+        } else if (sessionStorage.getItem(AUTH_SESSION_KEY) === 'true' && ADMIN_USERNAME && ADMIN_PASSWORD_HASH) {
             unlockApp();
         } else {
-            document.body.classList.add('auth-locked');
-            loginView.classList.remove('hidden');
             loginUsername.focus();
         }
     }
@@ -616,7 +714,7 @@
 
             // Using standard team item logic (SVG removed from JS, handled by CSS/HTML structure)
             // Team ID + Name + Badge
-            d.innerHTML = `<span class="team-id">${meta.id}</span>
+            d.innerHTML = `<span class="team-id">${esc(meta.id)}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>`
                 + (totalQty ? `<span class="badge">${totalQty}</span>` : '');
             d.addEventListener('click', () => selectTeam(name));
@@ -635,7 +733,7 @@
         teamView.style.animation = '';
 
         const meta = data.meta[name] || { id: '???' };
-        teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${meta.id}</span>${esc(name)}`;
+        teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${esc(meta.id)}</span>${esc(name)}`;
         teamRenameInput.value = name;
 
         renderTeams();
@@ -851,7 +949,7 @@
             const meta = data.meta[team] || { id: '' };
             const items = data.teams[team] || [];
             if (!items.length) {
-                html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)}</h4>
+                html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)}</h4>
         <p style="color:var(--text-dim);font-size:.85rem">No components.</p></div>`;
                 return;
             }
@@ -867,7 +965,7 @@
                 rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${qty}</td></tr>`;
             });
             total += tq;
-            html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
+            html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
       <table><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         });
         html += `<div class="summary-total">Total In Circulation: <span>${total}</span></div>`;
@@ -923,7 +1021,7 @@
           <td>${isReturn ? '<span class="badge-returned">RETURNED</span>' : '<span style="color:var(--amity-blue);font-size:.7rem;font-weight:700">TAKEN</span>'}</td>
         </tr>`;
                 });
-                html += `<div class="summary-team"><h4>[${meta.id}] ${esc(team)}</h4>
+                html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)}</h4>
         <table><thead><tr><th>Component</th><th>Qty</th><th>Time</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
             });
         }

@@ -33,8 +33,7 @@ jobs:
           FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
-          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
-          ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
         run: |
           cat > firebase-config.js <<EOF
           window.COMPONENT_TRACKER_CONFIG = {
@@ -50,8 +49,8 @@ jobs:
               measurementId: '$FIREBASE_MEASUREMENT_ID'
             },
             auth: {
-              username: '$ADMIN_USERNAME',
-              passwordHash: '$ADMIN_PASSWORD_HASH'
+              mode: 'firebase',
+              adminEmail: '$ADMIN_EMAIL'
             },
             databasePaths: {
               production: 'componentTracker/production/state',
