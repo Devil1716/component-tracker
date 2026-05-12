@@ -255,12 +255,10 @@
     let data = load();
     let activeTeam = null;
     let firebaseReady = false;
-    let firebaseApp = null;
-    let firebaseAuth = null;
+    let firebaseAuthToken = '';
     let appUnlocked = false;
-    let firebaseRef = null;
-    let firebaseSet = null;
     let firebaseSaveTimer = null;
+    let firebasePollTimer = null;
 
     // ── Date Format ────────────────────────────────────────
     function toDateKey(d) {
@@ -340,10 +338,10 @@
     }
 
     function queueRemoteSave() {
-        if (!firebaseReady || !firebaseSet || !firebaseRef) return;
+        if (!firebaseReady || !firebaseAuthToken) return;
         clearTimeout(firebaseSaveTimer);
         firebaseSaveTimer = setTimeout(() => {
-            firebaseSet(firebaseRef, data).catch(err => {
+            putRemoteData(data).catch(err => {
                 setSyncStatus('Cloud sync failed. Local copy saved.', 'danger');
                 console.error('Firebase save failed', err);
             });
@@ -361,22 +359,6 @@
         populateDataList();
     }
 
-    async function getFirebaseApp() {
-        if (firebaseApp) return firebaseApp;
-        if (!RUNTIME_CONFIG.firebase) throw new Error('Firebase config is missing.');
-        const appModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
-        firebaseApp = appModule.initializeApp(RUNTIME_CONFIG.firebase);
-        return firebaseApp;
-    }
-
-    async function getFirebaseAuth() {
-        if (firebaseAuth) return firebaseAuth;
-        const authModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-        const auth = authModule.getAuth(await getFirebaseApp());
-        firebaseAuth = { authModule, auth };
-        return firebaseAuth;
-    }
-
     function isAllowedAdminUser(user) {
         if (!user || !user.email) return false;
         return Boolean(ADMIN_EMAIL && user.email.toLowerCase() === ADMIN_EMAIL);
@@ -384,14 +366,59 @@
 
     async function signInFirebaseAdmin(email, password) {
         if (!ADMIN_EMAIL) throw new Error('Admin Firebase email is not configured.');
+        if (!RUNTIME_CONFIG.firebase?.apiKey) throw new Error('Firebase API key is not configured.');
         if (!email || !password) throw new Error('Enter the admin email and password.');
-        const { authModule, auth } = await getFirebaseAuth();
-        await authModule.setPersistence(auth, authModule.browserSessionPersistence);
-        const credential = await authModule.signInWithEmailAndPassword(auth, email, password);
-        if (!isAllowedAdminUser(credential.user)) {
-            await authModule.signOut(auth);
+        const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(RUNTIME_CONFIG.firebase.apiKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, returnSecureToken: true })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error('Invalid username or password.');
+        }
+        if (!isAllowedAdminUser(result)) {
+            firebaseAuthToken = '';
             throw new Error('This account is not allowed to access this tracker.');
         }
+        firebaseAuthToken = result.idToken || '';
+        sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+            email: result.email,
+            idToken: firebaseAuthToken,
+            expiresAt: Date.now() + (Number(result.expiresIn || 3600) * 1000)
+        }));
+    }
+
+    function restoreFirebaseSession() {
+        try {
+            const session = JSON.parse(sessionStorage.getItem(AUTH_SESSION_KEY) || '{}');
+            if (!isAllowedAdminUser(session) || !session.idToken || session.expiresAt <= Date.now()) return false;
+            firebaseAuthToken = session.idToken;
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function firebaseStateUrl() {
+        const base = String(RUNTIME_CONFIG.firebase?.databaseURL || '').replace(/\/$/, '');
+        if (!base) throw new Error('Firebase database URL is not configured.');
+        return `${base}/${FIREBASE_STATE_PATH}.json?auth=${encodeURIComponent(firebaseAuthToken)}`;
+    }
+
+    async function getRemoteData() {
+        const response = await fetch(firebaseStateUrl(), { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Firebase read failed: ${response.status}`);
+        return response.json();
+    }
+
+    async function putRemoteData(nextData) {
+        const response = await fetch(firebaseStateUrl(), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextData)
+        });
+        if (!response.ok) throw new Error(`Firebase write failed: ${response.status}`);
     }
 
     async function connectFirebase() {
@@ -405,32 +432,23 @@
         }
 
         try {
-            const dbModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js');
-            const app = await getFirebaseApp();
-            if (AUTH_MODE === 'firebase') {
-                const { auth } = await getFirebaseAuth();
-                if (!isAllowedAdminUser(auth.currentUser)) {
-                    setSyncStatus('Sign in with the admin Firebase account to sync.', 'danger');
-                    return;
-                }
+            if (AUTH_MODE === 'firebase' && !firebaseAuthToken) {
+                setSyncStatus('Sign in with the admin Firebase account to sync.', 'danger');
+                return;
             }
-            const db = dbModule.getDatabase(app);
-            firebaseRef = dbModule.ref(db, FIREBASE_STATE_PATH);
-            firebaseSet = dbModule.set;
             setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
 
-            const snapshot = await dbModule.get(firebaseRef);
-            const remoteData = snapshot.exists() ? snapshot.val() : null;
+            const remoteData = await getRemoteData();
             const localData = load();
             const alreadyMigrated = localStorage.getItem(MIGRATION_KEY) === 'true';
 
             if (!remoteData && hasLocalContent(localData)) {
                 data = normalizeData(localData);
-                await firebaseSet(firebaseRef, data);
+                await putRemoteData(data);
                 localStorage.setItem(MIGRATION_KEY, 'true');
             } else if (remoteData && hasLocalContent(localData) && !alreadyMigrated) {
                 data = mergeData(remoteData, localData);
-                await firebaseSet(firebaseRef, data);
+                await putRemoteData(data);
                 localStorage.setItem(MIGRATION_KEY, 'true');
             } else if (remoteData) {
                 data = normalizeData(remoteData);
@@ -441,18 +459,22 @@
             setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
             renderAll();
 
-            dbModule.onValue(firebaseRef, snap => {
-                if (!snap.exists()) return;
-                const next = normalizeData(snap.val());
-                if (JSON.stringify(next) === JSON.stringify(data)) return;
-                data = next;
-                save(data, { remote: true });
-                setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
-                renderAll();
-            }, err => {
-                setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
-                console.error('Firebase listener failed', err);
-            });
+            clearInterval(firebasePollTimer);
+            firebasePollTimer = setInterval(async () => {
+                try {
+                    const nextRaw = await getRemoteData();
+                    if (!nextRaw) return;
+                    const next = normalizeData(nextRaw);
+                    if (JSON.stringify(next) === JSON.stringify(data)) return;
+                    data = next;
+                    save(data, { remote: true });
+                    setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
+                    renderAll();
+                } catch (err) {
+                    setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
+                    console.error('Firebase polling failed', err);
+                }
+            }, 5000);
         } catch (err) {
             setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
             console.error('Firebase connection failed', err);
@@ -536,7 +558,7 @@
                 if (username !== ADMIN_USERNAME || passwordHash !== ADMIN_PASSWORD_HASH) {
                     throw new Error('Invalid username or password.');
                 }
-                sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+                sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ localHash: true }));
             }
             loginPassword.value = '';
             unlockApp();
@@ -551,19 +573,9 @@
         loginForm.addEventListener('submit', handleLogin);
         document.body.classList.add('auth-locked');
         loginView.classList.remove('hidden');
-        if (AUTH_MODE === 'firebase') {
-            getFirebaseAuth()
-                .then(({ authModule, auth }) => {
-                    authModule.onAuthStateChanged(auth, user => {
-                        if (isAllowedAdminUser(user)) unlockApp();
-                        else loginUsername.focus();
-                    });
-                })
-                .catch(() => {
-                    loginError.textContent = 'Firebase admin login is not configured.';
-                    loginUsername.focus();
-                });
-        } else if (sessionStorage.getItem(AUTH_SESSION_KEY) === 'true' && ADMIN_USERNAME && ADMIN_PASSWORD_HASH) {
+        if (AUTH_MODE === 'firebase' && restoreFirebaseSession()) {
+            unlockApp();
+        } else if (AUTH_MODE !== 'firebase' && sessionStorage.getItem(AUTH_SESSION_KEY) && ADMIN_USERNAME && ADMIN_PASSWORD_HASH) {
             unlockApp();
         } else {
             loginUsername.focus();
