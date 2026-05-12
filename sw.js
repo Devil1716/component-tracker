@@ -1,8 +1,9 @@
-const CACHE_NAME = 'component-tracker-v4';
+const CACHE_NAME = 'component-tracker-v5';
 const ASSETS = [
     './',
     './index.html',
     './style.css',
+    './firebase-config.js',
     './app.js',
     './manifest.webmanifest',
     './assets/icon.svg'

@@ -19,7 +19,7 @@ jobs:
       - name: Build release package
         run: |
           mkdir -p dist/component-tracker
-          cp index.html style.css app.js manifest.webmanifest sw.js README.md .nojekyll dist/component-tracker/
+          cp index.html style.css app.js manifest.webmanifest sw.js README.md .nojekyll firebase-config.js firebase-config.template.js dist/component-tracker/
           mkdir -p dist/component-tracker/assets
           cp assets/icon.svg dist/component-tracker/assets/
           cd dist
@@ -30,4 +30,3 @@ jobs:
         with:
           files: dist/component-tracker.zip
           generate_release_notes: true
-

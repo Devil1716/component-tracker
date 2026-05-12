@@ -155,29 +155,25 @@
         }
     ];
 
-    const FIREBASE_CONFIG = {
-        apiKey: "AIzaSyCVWxIy0biqmbag24g9XlPVPSPqWbB_0xI",
-        authDomain: "component-tracker-cd000.firebaseapp.com",
-        databaseURL: "https://component-tracker-cd000-default-rtdb.asia-southeast1.firebasedatabase.app",
-        projectId: "component-tracker-cd000",
-        storageBucket: "component-tracker-cd000.firebasestorage.app",
-        messagingSenderId: "509342024752",
-        appId: "1:509342024752:web:9951608f1e042a5f2e99f5",
-        measurementId: "G-0PY6GD6SGB"
-    };
-    const FIREBASE_STATE_PATH = 'componentTracker/state';
     const BRANCHES = ['CSE', 'AIML', 'ROBOTICS', 'ECE', 'BIOTECH'];
     const MEMBER_COUNT = 5;
+    const RUNTIME_CONFIG = window.COMPONENT_TRACKER_CONFIG || {};
     const AUTH_SESSION_KEY = 'component_tracker_admin_authenticated';
-    const ADMIN_USERNAME = 'Admin';
-    const ADMIN_PASSWORD_HASH = 'f4be6304187fe50f86c8ab2bd456c59425f2844f1990d6f47ddee184c4ec9f60';
+    const ADMIN_USERNAME = RUNTIME_CONFIG.auth?.username || '';
+    const ADMIN_PASSWORD_HASH = RUNTIME_CONFIG.auth?.passwordHash || '';
+    const APP_ENV = new URLSearchParams(location.search).get('env') === 'test' ? 'testing' : (RUNTIME_CONFIG.environment || 'production');
+    const DATABASE_PATHS = RUNTIME_CONFIG.databasePaths || {
+        production: 'componentTracker/production/state',
+        testing: 'componentTracker/testing/state'
+    };
+    const FIREBASE_STATE_PATH = DATABASE_PATHS[APP_ENV] || DATABASE_PATHS.production;
 
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
 
     // ── Storage helpers ────────────────────────────────────
     const KEY = 'comp_tracker_v8';
-    const MIGRATION_KEY = `${KEY}_firebase_migrated_v1`;
+    const MIGRATION_KEY = `${KEY}_firebase_migrated_${APP_ENV}_v1`;
     function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
     function blankMember() { return { name: '', sen: '', branch: '' }; }
     function normalizeMembers(members) {
@@ -330,6 +326,10 @@
     }
 
     async function connectFirebase() {
+        if (!RUNTIME_CONFIG.firebase) {
+            setSyncStatus('Missing Firebase config. Local copy saved.', 'danger');
+            return;
+        }
         if (location.protocol === 'file:') {
             setSyncStatus('Offline file mode. Open the hosted link for cloud sync.', 'danger');
             return;
@@ -338,10 +338,11 @@
         try {
             const appModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
             const dbModule = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js');
-            const app = appModule.initializeApp(FIREBASE_CONFIG);
+            const app = appModule.initializeApp(RUNTIME_CONFIG.firebase);
             const db = dbModule.getDatabase(app);
             firebaseRef = dbModule.ref(db, FIREBASE_STATE_PATH);
             firebaseSet = dbModule.set;
+            setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
 
             const snapshot = await dbModule.get(firebaseRef);
             const remoteData = snapshot.exists() ? snapshot.val() : null;
@@ -362,7 +363,7 @@
             }
 
             firebaseReady = true;
-            setSyncStatus('Cloud sync connected', 'success');
+            setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
             renderAll();
 
             dbModule.onValue(firebaseRef, snap => {
@@ -371,7 +372,7 @@
                 if (JSON.stringify(next) === JSON.stringify(data)) return;
                 data = next;
                 save(data, { remote: true });
-                setSyncStatus('Cloud sync connected', 'success');
+                setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
                 renderAll();
             }, err => {
                 setSyncStatus('Cloud sync unavailable. Local copy saved.', 'danger');
@@ -392,6 +393,7 @@
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
     const teamRenameInput = $('#teamRenameInput'), renameTeamBtn = $('#renameTeamBtn');
     const membersGrid = $('#membersGrid'), syncStatus = $('#syncStatus');
+    const detailsEditor = $('#detailsEditor'), detailsSummary = $('#detailsSummary'), editDetailsBtn = $('#editDetailsBtn');
     const componentList = $('#componentList'); // DATALIST
     const quantityInput = $('#quantityInput'), logComponentBtn = $('#logComponentBtn');
     const inventoryBody = $('#inventoryBody'), noItemsMsg = $('#noItemsMsg');
@@ -435,7 +437,7 @@
     function unlockApp() {
         document.body.classList.remove('auth-locked');
         loginView.classList.add('hidden');
-        setSyncStatus('Connecting cloud sync...', 'info');
+        setSyncStatus(`Connecting ${APP_ENV} cloud sync...`, 'info');
         renderTeams();
         populateDataList();
         connectFirebase();
@@ -444,6 +446,10 @@
     async function handleLogin(e) {
         e.preventDefault();
         loginError.textContent = '';
+        if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+            loginError.textContent = 'Login config missing. Contact the administrator.';
+            return;
+        }
         const username = loginUsername.value.trim();
         const passwordHash = await sha256(loginPassword.value);
         if (username === ADMIN_USERNAME && passwordHash === ADMIN_PASSWORD_HASH) {
@@ -532,6 +538,34 @@
                 <select data-field="branch">${branchOptions}</select>
             </div>`;
         }).join('');
+        renderDetailsState();
+    }
+
+    function memberDetailsComplete(members) {
+        return normalizeMembers(members).every(member => member.name && member.sen && member.branch);
+    }
+
+    function renderDetailsState(forceOpen = false) {
+        if (!activeTeam) return;
+        const meta = data.meta[activeTeam] || {};
+        const members = normalizeMembers(meta.members);
+        const complete = memberDetailsComplete(members);
+        const collapsed = complete && meta.detailsCollapsed !== false && !forceOpen;
+        detailsEditor.classList.toggle('hidden', collapsed);
+        detailsSummary.classList.toggle('hidden', !collapsed);
+        editDetailsBtn.classList.toggle('hidden', !collapsed);
+        if (collapsed) {
+            const filled = members.filter(member => member.name && member.sen && member.branch).length;
+            detailsSummary.innerHTML = `<strong>${filled}/${MEMBER_COUNT} members saved</strong><span>${esc(activeTeam)}</span>`;
+        }
+    }
+
+    function openDetailsEditor() {
+        if (!activeTeam) return;
+        data.meta[activeTeam] = data.meta[activeTeam] || {};
+        data.meta[activeTeam].detailsCollapsed = false;
+        save(data);
+        renderDetailsState(true);
     }
 
     function updateMember(target) {
@@ -544,9 +578,11 @@
         const meta = data.meta[activeTeam] || { members: normalizeMembers() };
         meta.members = normalizeMembers(meta.members);
         meta.members[index][field] = target.value.trim();
+        meta.detailsCollapsed = memberDetailsComplete(meta.members);
         data.meta[activeTeam] = meta;
         save(data);
         setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
+        renderDetailsState();
     }
 
     function renameTeam() {
@@ -920,6 +956,7 @@
     addTeamBtn.addEventListener('click', addTeam);
     teamNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTeam(); });
     renameTeamBtn.addEventListener('click', renameTeam);
+    editDetailsBtn.addEventListener('click', openDetailsEditor);
     teamRenameInput.addEventListener('keydown', e => { if (e.key === 'Enter') renameTeam(); });
     membersGrid.addEventListener('change', e => updateMember(e.target));
     membersGrid.addEventListener('blur', e => updateMember(e.target), true);

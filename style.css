@@ -693,6 +693,7 @@ tr:hover {
   display: flex;
   gap: 10px;
   align-items: center;
+  margin-bottom: 14px;
 }
 
 .rename-row input,
@@ -728,6 +729,24 @@ tr:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 12px;
+}
+
+.details-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  color: var(--amity-blue);
+}
+
+.details-summary span {
+  color: var(--text-dim);
+  font-size: .9rem;
 }
 
 .member-card {

@@ -125,14 +125,20 @@
                         <h3>Team Details</h3>
                         <p id="syncStatus">Sync starting...</p>
                     </div>
-                    <div class="rename-row">
-                        <input type="text" id="teamRenameInput" placeholder="Team name">
-                        <button class="btn-rename" id="renameTeamBtn">Rename</button>
-                    </div>
+                    <button class="btn-rename" id="editDetailsBtn" type="button">Edit Details</button>
                 </div>
 
-                <div class="members-grid" id="membersGrid">
-                    <!-- Member fields populated by JS -->
+                <div class="details-summary hidden" id="detailsSummary"></div>
+
+                <div class="details-editor" id="detailsEditor">
+                    <div class="rename-row">
+                        <input type="text" id="teamRenameInput" placeholder="Team name">
+                        <button class="btn-rename" id="renameTeamBtn" type="button">Rename</button>
+                    </div>
+
+                    <div class="members-grid" id="membersGrid">
+                        <!-- Member fields populated by JS -->
+                    </div>
                 </div>
             </div>
 
@@ -212,6 +218,7 @@
         </div>
     </div>
 
+    <script src="firebase-config.js"></script>
     <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator && location.protocol !== 'file:') {
