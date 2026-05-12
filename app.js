@@ -159,8 +159,10 @@
     const MEMBER_COUNT = 5;
     const RUNTIME_CONFIG = window.COMPONENT_TRACKER_CONFIG || {};
     const AUTH_SESSION_KEY = 'component_tracker_admin_authenticated';
-    const ADMIN_USERNAME = RUNTIME_CONFIG.auth?.username || '';
-    const ADMIN_PASSWORD_HASH = RUNTIME_CONFIG.auth?.passwordHash || '';
+    const DEFAULT_ADMIN_USERNAME = 'Admin';
+    const DEFAULT_ADMIN_PASSWORD_HASH = 'f4be6304187fe50f86c8ab2bd456c59425f2844f1990d6f47ddee184c4ec9f60';
+    const ADMIN_USERNAME = RUNTIME_CONFIG.auth?.username || DEFAULT_ADMIN_USERNAME;
+    const ADMIN_PASSWORD_HASH = RUNTIME_CONFIG.auth?.passwordHash || DEFAULT_ADMIN_PASSWORD_HASH;
     const APP_ENV = new URLSearchParams(location.search).get('env') === 'test' ? 'testing' : (RUNTIME_CONFIG.environment || 'production');
     const DATABASE_PATHS = RUNTIME_CONFIG.databasePaths || {
         production: 'componentTracker/production/state',
@@ -446,10 +448,6 @@
     async function handleLogin(e) {
         e.preventDefault();
         loginError.textContent = '';
-        if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
-            loginError.textContent = 'Login config missing. Contact the administrator.';
-            return;
-        }
         const username = loginUsername.value.trim();
         const passwordHash = await sha256(loginPassword.value);
         if (username === ADMIN_USERNAME && passwordHash === ADMIN_PASSWORD_HASH) {
