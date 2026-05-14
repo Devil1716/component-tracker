@@ -10,9 +10,12 @@ The app is a static browser app with Firebase Realtime Database sync. It keeps a
 - Runtime config generated from GitHub Secrets, so Firebase keys and admin settings are not committed
 - Separate production and testing database vessels
 - Team creation with automatic IDs like `IL001`
-- Team rename support
-- Five member profile fields per team: name, SEN, and branch
-- Team details collapse automatically after all five member entries are complete
+- Team rename and team number edit support
+- Project name per team
+- Five member profile fields per team: name, SEN, branch, and college email ID
+- Team details collapse after successful validation and save
+- Team/project search in the sidebar
+- Pending return reminder email selection
 - Component catalog with stock limits and remaining-stock hints
 - Checkout and return tracking by team
 - Daily activity log
@@ -107,6 +110,40 @@ Use locked Firebase Realtime Database rules. Copy `database.rules.json` into Fir
 ```
 
 Important: the rule email must exactly match your Firebase Authentication admin user email and the `ADMIN_EMAIL` GitHub secret.
+
+## Reminder Email Backend
+
+Reminder email sending is designed to run through Firebase Functions with Nodemailer so SMTP credentials stay out of the browser.
+
+The frontend reads:
+
+```js
+email: {
+  reminderEndpoint: 'https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/sendReminderEmails'
+}
+```
+
+Configure the function environment with:
+
+```text
+ADMIN_EMAIL=kprasanna@blr.amity.edu
+ALLOWED_ORIGIN=https://devil1716.github.io
+SMTP_HOST=your.smtp.host
+SMTP_PORT=587
+SMTP_USER=your-admin-smtp-user
+SMTP_PASS=your-admin-smtp-password-or-app-password
+```
+
+Then deploy:
+
+```powershell
+cd functions
+npm install
+cd ..
+npx firebase-tools deploy --only functions --project component-tracker-cd000
+```
+
+After deployment, copy the function URL into `firebase-config.js` or the GitHub Pages runtime config as `email.reminderEndpoint`.
 
 ## Secret Alert Cleanup
 

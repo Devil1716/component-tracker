@@ -169,6 +169,8 @@
         testing: 'componentTracker/testing/state'
     };
     const FIREBASE_STATE_PATH = DATABASE_PATHS[APP_ENV] || DATABASE_PATHS.production;
+    const REMINDER_EMAIL_ENDPOINT = RUNTIME_CONFIG.email?.reminderEndpoint || '';
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
@@ -177,7 +179,7 @@
     const KEY = 'comp_tracker_v8';
     const MIGRATION_KEY = `${KEY}_firebase_migrated_${APP_ENV}_v1`;
     function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
-    function blankMember() { return { name: '', sen: '', branch: '' }; }
+    function blankMember() { return { name: '', sen: '', branch: '', email: '' }; }
     function cleanString(value, max = 200) { return String(value ?? '').trim().slice(0, max); }
     function cleanQuantity(value) {
         const qty = Number.parseInt(value, 10);
@@ -196,7 +198,9 @@
             itemId,
             qty,
             date: /^\d{4}-\d{2}-\d{2}$/.test(String(item?.date || '')) ? item.date : todayKey(),
-            time: Number.isNaN(Date.parse(item?.time)) ? new Date().toISOString() : item.time
+            time: Number.isNaN(Date.parse(item?.time)) ? new Date().toISOString() : item.time,
+            memberIndex: item?.memberIndex !== null && item?.memberIndex !== undefined && Number.isInteger(Number(item.memberIndex)) ? Number(item.memberIndex) : null,
+            memberEmail: cleanString(item?.memberEmail, 160).toLowerCase()
         };
     }
     function normalizeHistoryEvent(item) {
@@ -214,8 +218,18 @@
         return out.map(m => ({
             name: cleanString(m?.name, 120),
             sen: cleanString(m?.sen, 80),
-            branch: BRANCHES.includes(m?.branch) ? m.branch : ''
+            branch: BRANCHES.includes(m?.branch) ? m.branch : '',
+            email: cleanString(m?.email, 160).toLowerCase()
         }));
+    }
+    function normalizeMeta(meta = {}, fallbackId = '') {
+        return {
+            ...meta,
+            id: cleanString(meta.id || fallbackId, 40),
+            projectName: cleanString(meta.projectName, 160),
+            detailsCollapsed: meta.detailsCollapsed === true,
+            members: normalizeMembers(meta.members)
+        };
     }
     function normalizeData(raw) {
         const d = raw && typeof raw === 'object' ? raw : emptyData();
@@ -231,8 +245,7 @@
                 d.dateCounter++;
                 d.meta[name] = { id: generateId(d.dateCounter) };
             }
-            d.meta[name].id = cleanString(d.meta[name].id || generateId(d.dateCounter), 40);
-            d.meta[name].members = normalizeMembers(d.meta[name].members);
+            d.meta[name] = normalizeMeta(d.meta[name], generateId(d.dateCounter));
         });
         return d;
     }
@@ -259,6 +272,7 @@
     let appUnlocked = false;
     let firebaseSaveTimer = null;
     let firebasePollTimer = null;
+    let detailsSaveInProgress = false;
 
     // ── Date Format ────────────────────────────────────────
     function toDateKey(d) {
@@ -305,7 +319,8 @@
             return {
                 name: localMember.name || member.name,
                 sen: localMember.sen || member.sen,
-                branch: localMember.branch || member.branch
+                branch: localMember.branch || member.branch,
+                email: localMember.email || member.email
             };
         });
     }
@@ -325,6 +340,7 @@
                 ...(merged.meta[name] || {}),
                 ...(local.meta[name] || {}),
                 id: (merged.meta[name]?.id || local.meta[name]?.id || ''),
+                projectName: (local.meta[name]?.projectName || merged.meta[name]?.projectName || ''),
                 members: mergeMemberSlots(merged.meta[name]?.members, local.meta[name]?.members)
             };
         });
@@ -486,13 +502,15 @@
     const loginView = $('#loginView'), loginForm = $('#loginForm');
     const loginUsername = $('#loginUsername'), loginPassword = $('#loginPassword'), loginError = $('#loginError');
     const teamNameInput = $('#teamNameInput'), addTeamBtn = $('#addTeamBtn'), teamListEl = $('#teamList');
+    const teamSearchInput = $('#teamSearchInput');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
-    const teamRenameInput = $('#teamRenameInput'), renameTeamBtn = $('#renameTeamBtn');
+    const teamRenameInput = $('#teamRenameInput'), teamNumberInput = $('#teamNumberInput'), projectNameInput = $('#projectNameInput');
+    const renameTeamBtn = $('#renameTeamBtn'), saveDetailsBtn = $('#saveDetailsBtn');
     const membersGrid = $('#membersGrid'), syncStatus = $('#syncStatus');
     const detailsEditor = $('#detailsEditor'), detailsSummary = $('#detailsSummary'), editDetailsBtn = $('#editDetailsBtn');
     const componentList = $('#componentList'); // DATALIST
-    const quantityInput = $('#quantityInput'), logComponentBtn = $('#logComponentBtn');
+    const quantityInput = $('#quantityInput'), issueMemberSelect = $('#issueMemberSelect'), logComponentBtn = $('#logComponentBtn');
     const inventoryBody = $('#inventoryBody'), noItemsMsg = $('#noItemsMsg');
     const exportBtn = $('#exportBtn'), summaryBtn = $('#summaryBtn'), summaryModal = $('#summaryModal');
     const summaryContent = $('#summaryContent'), closeSummary = $('#closeSummary');
@@ -501,6 +519,8 @@
     const dailyBtn = $('#dailyBtn'), dailyModal = $('#dailyModal'), dailyContent = $('#dailyContent');
     const closeDaily = $('#closeDaily'), prevDay = $('#prevDay'), nextDay = $('#nextDay');
     const currentDateEl = $('#currentDate');
+    const reminderBtn = $('#reminderBtn'), reminderModal = $('#reminderModal'), closeReminder = $('#closeReminder');
+    const reminderList = $('#reminderList'), reminderStatus = $('#reminderStatus'), sendReminderBtn = $('#sendReminderBtn');
 
     const sidebar = $('#sidebar'), sidebarToggle = $('#sidebarToggle');
 
@@ -596,6 +616,20 @@
         });
     }
 
+    function populateIssueMemberSelect() {
+        if (!issueMemberSelect) return;
+        issueMemberSelect.innerHTML = '<option value="">Issue to member...</option>';
+        if (!activeTeam) return;
+        const members = normalizeMembers(data.meta[activeTeam]?.members);
+        members.forEach((member, index) => {
+            if (!member.name && !member.email) return;
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `${member.name || `Member ${index + 1}`}${member.email ? ` (${member.email})` : ''}`;
+            issueMemberSelect.appendChild(option);
+        });
+    }
+
     function getSelectedId() {
         const val = componentSelect.value.trim();
         if (!val) return null;
@@ -643,28 +677,39 @@
                 <div class="member-label">Member ${index + 1}</div>
                 <input type="text" data-field="name" value="${esc(member.name)}" placeholder="Name">
                 <input type="text" data-field="sen" value="${esc(member.sen)}" placeholder="SEN">
+                <input type="text" inputmode="email" data-field="email" value="${esc(member.email)}" placeholder="College email ID">
                 <select data-field="branch">${branchOptions}</select>
             </div>`;
         }).join('');
         renderDetailsState();
     }
 
+    function teamNumberAvailable(id, currentTeam = activeTeam) {
+        const normalized = cleanString(id, 40).toLowerCase();
+        if (!normalized) return false;
+        return !data.order.some(team => team !== currentTeam && cleanString(data.meta[team]?.id, 40).toLowerCase() === normalized);
+    }
+
     function memberDetailsComplete(members) {
-        return normalizeMembers(members).every(member => member.name && member.sen && member.branch);
+        return normalizeMembers(members).every(member => member.name && member.sen && member.branch && EMAIL_RE.test(member.email));
+    }
+
+    function teamDetailsComplete(meta) {
+        return Boolean(cleanString(meta?.id, 40) && cleanString(meta?.projectName, 160) && memberDetailsComplete(meta?.members));
     }
 
     function renderDetailsState(forceOpen = false) {
         if (!activeTeam) return;
         const meta = data.meta[activeTeam] || {};
         const members = normalizeMembers(meta.members);
-        const complete = memberDetailsComplete(members);
+        const complete = teamDetailsComplete(meta);
         const collapsed = complete && meta.detailsCollapsed !== false && !forceOpen;
         detailsEditor.classList.toggle('hidden', collapsed);
         detailsSummary.classList.toggle('hidden', !collapsed);
         editDetailsBtn.classList.toggle('hidden', !collapsed);
         if (collapsed) {
-            const filled = members.filter(member => member.name && member.sen && member.branch).length;
-            detailsSummary.innerHTML = `<strong>${filled}/${MEMBER_COUNT} members saved</strong><span>${esc(activeTeam)}</span>`;
+            const filled = members.filter(member => member.name && member.sen && member.branch && EMAIL_RE.test(member.email)).length;
+            detailsSummary.innerHTML = `<strong>${esc(meta.id)} - ${filled}/${MEMBER_COUNT} members saved</strong><span>${esc(meta.projectName)} - ${esc(activeTeam)}</span>`;
         }
     }
 
@@ -678,6 +723,7 @@
 
     function updateMember(target) {
         if (!activeTeam) return;
+        if (detailsSaveInProgress) return;
         const card = target.closest('.member-card');
         if (!card) return;
         const index = Number(card.dataset.index);
@@ -685,12 +731,58 @@
         if (!Number.isInteger(index) || !field) return;
         const meta = data.meta[activeTeam] || { members: normalizeMembers() };
         meta.members = normalizeMembers(meta.members);
-        meta.members[index][field] = target.value.trim();
-        meta.detailsCollapsed = memberDetailsComplete(meta.members);
+        meta.members[index][field] = field === 'email' ? target.value.trim().toLowerCase() : target.value.trim();
+        meta.detailsCollapsed = false;
         data.meta[activeTeam] = meta;
         save(data);
         setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
         renderDetailsState();
+    }
+
+    function updateTeamMetaField(target) {
+        if (!activeTeam) return;
+        if (detailsSaveInProgress) return;
+        const meta = data.meta[activeTeam] || { members: normalizeMembers() };
+        if (target === teamNumberInput) meta.id = cleanString(target.value, 40);
+        if (target === projectNameInput) meta.projectName = cleanString(target.value, 160);
+        meta.detailsCollapsed = false;
+        data.meta[activeTeam] = normalizeMeta(meta);
+        save(data);
+        renderDetailsState(true);
+        renderTeams();
+        setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
+    }
+
+    function saveTeamDetails() {
+        if (!activeTeam) return;
+        detailsSaveInProgress = true;
+        const members = [...membersGrid.querySelectorAll('.member-card')].map(card => ({
+            name: card.querySelector('[data-field="name"]')?.value || '',
+            sen: card.querySelector('[data-field="sen"]')?.value || '',
+            email: card.querySelector('[data-field="email"]')?.value || '',
+            branch: card.querySelector('[data-field="branch"]')?.value || ''
+        }));
+        const meta = normalizeMeta({
+            ...(data.meta[activeTeam] || {}),
+            id: teamNumberInput.value,
+            projectName: projectNameInput.value,
+            members
+        });
+        const finish = () => setTimeout(() => { detailsSaveInProgress = false; }, 150);
+        if (!meta.id) { finish(); return toast('Enter a team number', 'danger'); }
+        if (!teamNumberAvailable(meta.id)) { finish(); return toast('Team number already exists', 'danger'); }
+        if (!meta.projectName) { finish(); return toast('Enter a project name', 'danger'); }
+        const invalidEmail = meta.members.find(member => member.email && !EMAIL_RE.test(member.email));
+        if (invalidEmail) { finish(); return toast(`Invalid email: ${invalidEmail.email}`, 'danger'); }
+        if (!memberDetailsComplete(meta.members)) { finish(); return toast('Fill all member names, SEN, branch, and college emails', 'danger'); }
+        meta.detailsCollapsed = true;
+        data.meta[activeTeam] = meta;
+        save(data);
+        renderTeams();
+        renderDetailsState();
+        toast('Team details saved');
+        setSyncStatus(firebaseReady ? 'Saved to cloud.' : 'Saved locally. Sync pending.', 'success');
+        finish();
     }
 
     function renameTeam() {
@@ -702,7 +794,7 @@
         if (data.teams[newName]) return toast('Team already exists', 'danger');
 
         data.teams[newName] = data.teams[oldName] || [];
-        data.meta[newName] = data.meta[oldName] || { id: '???', members: normalizeMembers() };
+        data.meta[newName] = normalizeMeta(data.meta[oldName] || { id: '???', members: normalizeMembers() });
         delete data.teams[oldName];
         delete data.meta[oldName];
         data.order = data.order.map(name => name === oldName ? newName : name);
@@ -717,21 +809,32 @@
 
     function renderTeams() {
         teamListEl.innerHTML = '';
+        const query = cleanString(teamSearchInput?.value, 120).toLowerCase();
+        let rendered = 0;
         data.order.forEach(name => {
+            const meta = data.meta[name] || { id: '???', projectName: '' };
+            const matches = !query
+                || name.toLowerCase().includes(query)
+                || cleanString(meta.projectName, 160).toLowerCase().includes(query)
+                || cleanString(meta.id, 40).toLowerCase().includes(query);
+            if (!matches) return;
+            rendered++;
             const d = document.createElement('div');
             d.className = 'team-item' + (name === activeTeam ? ' active' : '');
             const items = data.teams[name] || [];
             const totalQty = items.reduce((s, c) => s + c.qty, 0);
-            const meta = data.meta[name] || { id: '???' };
 
             // Using standard team item logic (SVG removed from JS, handled by CSS/HTML structure)
             // Team ID + Name + Badge
             d.innerHTML = `<span class="team-id">${esc(meta.id)}</span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>`
+      <span class="team-list-copy"><strong>${esc(name)}</strong><small>${esc(meta.projectName || 'Project name pending')}</small></span>`
                 + (totalQty ? `<span class="badge">${totalQty}</span>` : '');
             d.addEventListener('click', () => selectTeam(name));
             teamListEl.appendChild(d);
         });
+        if (!rendered) {
+            teamListEl.innerHTML = '<div class="team-empty">No matching teams</div>';
+        }
     }
 
     function selectTeam(name, options = {}) {
@@ -745,15 +848,19 @@
         teamView.style.animation = '';
 
         const meta = data.meta[name] || { id: '???' };
-        teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${esc(meta.id)}</span>${esc(name)}`;
+        teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${esc(meta.id)}</span>${esc(name)}${meta.projectName ? `<small class="team-title-project">${esc(meta.projectName)}</small>` : ''}`;
         teamRenameInput.value = name;
+        teamNumberInput.value = meta.id || '';
+        projectNameInput.value = meta.projectName || '';
 
         renderTeams();
         renderMembers();
         renderInventory();
         populateDataList();
+        populateIssueMemberSelect();
         if (!options.keepInputs) {
             quantityInput.value = 1;
+            issueMemberSelect.value = '';
             componentSelect.value = '';
             stockHint.innerHTML = '';
         }
@@ -768,7 +875,7 @@
         data.teams[name] = [];
         data.order.push(name);
         data.dateCounter++;
-        data.meta[name] = { id: generateId(data.dateCounter), members: normalizeMembers() };
+        data.meta[name] = normalizeMeta({ id: generateId(data.dateCounter), members: normalizeMembers(), projectName: '', detailsCollapsed: false });
 
         save(data);
         teamNameInput.value = '';
@@ -804,6 +911,9 @@
         if (!qty || qty < 1) return toast('Qty must be at least 1', 'danger');
         const remaining = getRemaining(itemId);
         if (qty > remaining) return toast(`Only ${remaining} left`, 'danger');
+        const memberIndex = issueMemberSelect.value === '' ? null : Number(issueMemberSelect.value);
+        const member = Number.isInteger(memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[memberIndex] : null;
+        if (!member || !member.name || !EMAIL_RE.test(member.email)) return toast('Select a member with a valid college email', 'danger');
 
         const now = new Date();
         const dateKey = toDateKey(now);
@@ -815,20 +925,23 @@
         if (existing) {
             existing.qty += qty;
             existing.time = now.toISOString();
+            existing.memberIndex = memberIndex;
+            existing.memberEmail = member.email;
         } else {
             data.teams[activeTeam].push({
-                uid, itemId, qty, date: dateKey, time: now.toISOString()
+                uid, itemId, qty, date: dateKey, time: now.toISOString(), memberIndex, memberEmail: member.email
             });
         }
 
         data.history.push({
-            type: 'take', uid, itemId, qty, date: dateKey, time: now.toISOString(), team: activeTeam
+            type: 'take', uid, itemId, qty, date: dateKey, time: now.toISOString(), team: activeTeam, memberIndex, memberEmail: member.email
         });
 
         save(data);
         renderInventory();
         populateDataList();
         quantityInput.value = 1;
+        issueMemberSelect.value = '';
         componentSelect.value = '';
         stockHint.innerHTML = '';
         toast(`${qty}\u00D7 ${ITEM_MAP[itemId].name} logged`);
@@ -891,7 +1004,7 @@
         dates.forEach(dk => {
             const dateRow = document.createElement('tr');
             // Date row without emoji
-            dateRow.innerHTML = `<td colspan="5" style="padding:14px 14px 6px;border:none;">
+            dateRow.innerHTML = `<td colspan="6" style="padding:14px 14px 6px;border:none;">
       <span class="date-stamp">${formatDate(dk)}</span>
     </td>`;
             inventoryBody.appendChild(dateRow);
@@ -900,6 +1013,8 @@
                 idx++;
                 const it = ITEM_MAP[item.itemId];
                 const name = it ? it.name : 'Unknown';
+                const member = Number.isInteger(item.memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[item.memberIndex] : null;
+                const issuedTo = member?.name || item.memberEmail || 'Team';
                 const tr = document.createElement('tr');
                 const t = new Date(item.time);
                 const ts = t.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -907,6 +1022,7 @@
                 tr.innerHTML = `
         <td>${idx}</td>
         <td>${esc(name)}</td>
+        <td>${esc(issuedTo)}</td>
         <td><div class="qty-cell"><span class="qty-val">${item.qty}</span></div></td>
         <td style="color:var(--text-dim)">${ts}</td>
         <td><button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button></td>`;
@@ -925,7 +1041,7 @@
     // ── Export CSV ─────────────────────────────────────────
     function exportCSV() {
         if (!data.history.length) return toast('No history', 'info');
-        let csv = 'Type,Team ID,Team Name,Component,Qty,Date,Time\n';
+        let csv = 'Type,Team ID,Team Name,Project Name,Component,Qty,Date,Time\n';
         const sorted = [...data.history].sort((a, b) => b.time.localeCompare(a.time));
         const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
         sorted.forEach(h => {
@@ -937,6 +1053,7 @@
                 csvCell(type),
                 csvCell(meta.id),
                 csvCell(h.team),
+                csvCell(meta.projectName || ''),
                 csvCell(it ? it.name : '?'),
                 h.qty,
                 csvCell(h.date),
@@ -962,6 +1079,7 @@
             const items = data.teams[team] || [];
             if (!items.length) {
                 html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)}</h4>
+        <p class="summary-project">${esc(meta.projectName || 'Project name pending')}</p>
         <p style="color:var(--text-dim);font-size:.85rem">No components.</p></div>`;
                 return;
             }
@@ -977,7 +1095,8 @@
                 rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${qty}</td></tr>`;
             });
             total += tq;
-            html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)} — <span style="color:var(--accent3)">${tq} items</span></h4>
+            html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)} - <span style="color:var(--accent3)">${tq} items</span></h4>
+      <p class="summary-project">${esc(meta.projectName || 'Project name pending')}</p>
       <table><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div>`;
         });
         html += `<div class="summary-total">Total In Circulation: <span>${total}</span></div>`;
@@ -1003,6 +1122,128 @@
         });
         if (!html) html = '<p style="color:var(--text-dim);text-align:center;padding:20px">No matches.</p>';
         stockContent.innerHTML = html;
+    }
+
+    function pendingTeams() {
+        return data.order.map(team => {
+            const items = data.teams[team] || [];
+            if (!items.length) return null;
+            const meta = normalizeMeta(data.meta[team] || {});
+            const pendingComponents = items.map(item => {
+                const catalog = ITEM_MAP[item.itemId];
+                return {
+                    uid: item.uid,
+                    itemId: item.itemId,
+                    name: catalog ? catalog.name : 'Unknown component',
+                    qty: item.qty,
+                    date: item.date,
+                    time: item.time,
+                    memberIndex: item.memberIndex,
+                    memberEmail: item.memberEmail
+                };
+            });
+            const members = normalizeMembers(meta.members);
+            const validMembers = members.filter(member => member.name && EMAIL_RE.test(member.email));
+            const recipientMap = new Map();
+            pendingComponents.forEach(component => {
+                const member = Number.isInteger(component.memberIndex) ? members[component.memberIndex] : null;
+                const targets = member && EMAIL_RE.test(member.email) ? [member] : validMembers;
+                targets.forEach(target => {
+                    if (!recipientMap.has(target.email)) {
+                        recipientMap.set(target.email, {
+                            name: target.name,
+                            sen: target.sen,
+                            branch: target.branch,
+                            email: target.email,
+                            pendingComponents: []
+                        });
+                    }
+                    recipientMap.get(target.email).pendingComponents.push(component);
+                });
+            });
+            const recipients = [...recipientMap.values()];
+            return {
+                team,
+                teamNumber: meta.id,
+                projectName: meta.projectName,
+                pendingComponents,
+                recipients
+            };
+        }).filter(Boolean);
+    }
+
+    function renderReminderTeams() {
+        const teams = pendingTeams();
+        if (!teams.length) {
+            reminderStatus.textContent = 'No teams have pending components.';
+            reminderStatus.className = 'reminder-status success';
+            reminderList.innerHTML = '';
+            sendReminderBtn.disabled = true;
+            return;
+        }
+        reminderStatus.textContent = REMINDER_EMAIL_ENDPOINT
+            ? `Select teams to email. Sender: ${ADMIN_EMAIL}`
+            : 'Email backend is not configured. Set COMPONENT_TRACKER_CONFIG.email.reminderEndpoint after deploying the Firebase Function.';
+        reminderStatus.className = REMINDER_EMAIL_ENDPOINT ? 'reminder-status' : 'reminder-status danger';
+        sendReminderBtn.disabled = !REMINDER_EMAIL_ENDPOINT;
+        reminderList.innerHTML = teams.map(item => {
+            const recipientText = item.recipients.length
+                ? item.recipients.map(r => `${esc(r.name)} &lt;${esc(r.email)}&gt;`).join(', ')
+                : '<span class="danger-text">No valid member emails</span>';
+            const components = item.pendingComponents.map(component => `<li>${esc(component.name)} <strong>x${component.qty}</strong></li>`).join('');
+            return `<label class="reminder-card">
+                <input type="checkbox" class="reminder-check" value="${esc(item.team)}" ${item.recipients.length ? 'checked' : 'disabled'}>
+                <div>
+                    <div class="reminder-card-head">
+                        <strong>${esc(item.teamNumber)} - ${esc(item.team)}</strong>
+                        <span>${esc(item.projectName || 'Project name pending')}</span>
+                    </div>
+                    <p>Recipients: ${recipientText}</p>
+                    <ul>${components}</ul>
+                </div>
+            </label>`;
+        }).join('');
+    }
+
+    function showReminders() {
+        renderReminderTeams();
+        reminderModal.classList.remove('hidden');
+    }
+
+    async function sendReminderEmails() {
+        const selected = [...reminderList.querySelectorAll('.reminder-check:checked')].map(input => input.value);
+        if (!selected.length) return toast('Select at least one team', 'danger');
+        if (!REMINDER_EMAIL_ENDPOINT) return toast('Email backend is not configured', 'danger');
+        const payload = {
+            adminEmail: ADMIN_EMAIL,
+            teams: pendingTeams().filter(item => selected.includes(item.team))
+        };
+        sendReminderBtn.disabled = true;
+        sendReminderBtn.textContent = 'Sending...';
+        reminderStatus.textContent = 'Sending reminder emails...';
+        reminderStatus.className = 'reminder-status';
+        try {
+            const response = await fetch(REMINDER_EMAIL_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(firebaseAuthToken ? { Authorization: `Bearer ${firebaseAuthToken}` } : {})
+                },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Reminder email send failed.');
+            reminderStatus.textContent = `Sent ${result.sent || 0} reminder email(s).`;
+            reminderStatus.className = 'reminder-status success';
+            toast('Reminder emails sent');
+        } catch (err) {
+            reminderStatus.textContent = err?.message || 'Reminder email send failed.';
+            reminderStatus.className = 'reminder-status danger';
+            toast('Reminder email send failed', 'danger');
+        } finally {
+            sendReminderBtn.disabled = false;
+            sendReminderBtn.textContent = 'Send Selected Emails';
+        }
     }
 
     // ── Daily Log ──────────────────────────────────────────
@@ -1063,9 +1304,13 @@
     // ── Event Bindings ─────────────────────────────────────
     addTeamBtn.addEventListener('click', addTeam);
     teamNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTeam(); });
+    teamSearchInput.addEventListener('input', renderTeams);
     renameTeamBtn.addEventListener('click', renameTeam);
     editDetailsBtn.addEventListener('click', openDetailsEditor);
     teamRenameInput.addEventListener('keydown', e => { if (e.key === 'Enter') renameTeam(); });
+    teamNumberInput.addEventListener('change', e => updateTeamMetaField(e.target));
+    projectNameInput.addEventListener('change', e => updateTeamMetaField(e.target));
+    saveDetailsBtn.addEventListener('click', saveTeamDetails);
     membersGrid.addEventListener('change', e => updateMember(e.target));
     membersGrid.addEventListener('blur', e => updateMember(e.target), true);
     deleteTeamBtn.addEventListener('click', deleteTeam);
@@ -1084,6 +1329,10 @@
     dailyModal.addEventListener('click', e => { if (e.target === dailyModal) dailyModal.classList.add('hidden'); });
     prevDay.addEventListener('click', () => shiftDay(-1));
     nextDay.addEventListener('click', () => shiftDay(1));
+    reminderBtn.addEventListener('click', showReminders);
+    closeReminder.addEventListener('click', () => reminderModal.classList.add('hidden'));
+    reminderModal.addEventListener('click', e => { if (e.target === reminderModal) reminderModal.classList.add('hidden'); });
+    sendReminderBtn.addEventListener('click', sendReminderEmails);
 
     // ── Init ───────────────────────────────────────────────
     initToast();

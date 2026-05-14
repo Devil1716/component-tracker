@@ -233,7 +233,8 @@ body.auth-locked .modal-overlay {
   padding: 16px;
 }
 
-.team-add input {
+.team-add input,
+.team-search input {
   flex: 1;
   padding: 8px 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -246,6 +247,14 @@ body.auth-locked .modal-overlay {
 
 .team-add input::placeholder {
   color: rgba(255, 255, 255, 0.4);
+}
+
+.team-search {
+  padding: 0 16px 14px;
+}
+
+.team-search input {
+  width: 100%;
 }
 
 .team-add button {
@@ -295,6 +304,30 @@ body.auth-locked .modal-overlay {
   box-shadow: inset 3px 0 0 var(--amity-gold);
 }
 
+.team-list-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.team-list-copy strong,
+.team-list-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-list-copy small,
+.team-empty {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: .72rem;
+}
+
+.team-empty {
+  padding: 12px;
+}
+
 .team-id {
   font-family: 'Courier New', monospace;
   font-weight: 700;
@@ -336,6 +369,19 @@ body.auth-locked .modal-overlay {
 .sidebar-footer button:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+}
+
+.sidebar-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-section-title {
+  padding: 12px 16px 4px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .sidebar-footer {
@@ -386,6 +432,14 @@ body.auth-locked .modal-overlay {
   font-size: 2rem;
   color: var(--amity-blue);
   font-weight: 800;
+}
+
+.team-title-project {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: .9rem;
+  font-weight: 600;
 }
 
 .btn-delete {
@@ -550,6 +604,11 @@ tr:hover {
   display: none;
 }
 
+#sidebar.collapsed .team-search,
+#sidebar.collapsed .sidebar-section-title {
+  display: none;
+}
+
 #sidebar.collapsed .team-add button {
   margin: 0;
 }
@@ -694,6 +753,7 @@ tr:hover {
   gap: 10px;
   align-items: center;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .rename-row input,
@@ -706,6 +766,10 @@ tr:hover {
   outline: none;
   background: #fff;
   min-width: 0;
+}
+
+.rename-row input {
+  flex: 1 1 180px;
 }
 
 .rename-row input:focus,
@@ -727,8 +791,15 @@ tr:hover {
 
 .members-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 12px;
+}
+
+.details-actions,
+.reminder-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .details-summary {
@@ -864,6 +935,74 @@ tr:hover {
   margin-bottom: 12px;
 }
 
+.summary-project {
+  margin: -6px 0 12px;
+  color: var(--text-dim);
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.modal-wide {
+  max-width: 900px;
+}
+
+.reminder-status {
+  padding: 12px 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  color: var(--amity-blue);
+  font-size: .9rem;
+  margin-bottom: 14px;
+}
+
+.reminder-status.success {
+  color: var(--success);
+}
+
+.reminder-status.danger,
+.danger-text {
+  color: var(--danger);
+}
+
+.reminder-list {
+  display: grid;
+  gap: 12px;
+}
+
+.reminder-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.reminder-card input {
+  margin-top: 4px;
+}
+
+.reminder-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--amity-blue);
+}
+
+.reminder-card-head span,
+.reminder-card p {
+  color: var(--text-dim);
+  font-size: .85rem;
+}
+
+.reminder-card ul {
+  margin: 8px 0 0 18px;
+  color: var(--text);
+  font-size: .9rem;
+}
+
 .summary-total {
   display: flex;
   justify-content: space-between;
@@ -966,6 +1105,8 @@ tr:hover {
 
   #sidebar.collapsed .sidebar-header div,
   #sidebar.collapsed .team-add input,
+  #sidebar.collapsed .team-search,
+  #sidebar.collapsed .sidebar-section-title,
   #sidebar.collapsed .team-item span:nth-child(2),
   #sidebar.collapsed .team-item .badge,
   #sidebar.collapsed .btn-stock span,

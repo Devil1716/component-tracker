@@ -14,6 +14,9 @@ window.COMPONENT_TRACKER_CONFIG = {
         mode: 'firebase',
         adminEmail: 'kprasanna@blr.amity.edu'
     },
+    email: {
+        reminderEndpoint: ''
+    },
     databasePaths: {
         production: 'componentTracker/production/state',
         testing: 'componentTracker/testing/state'
