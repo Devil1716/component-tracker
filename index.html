@@ -83,6 +83,13 @@
                 </svg>
                 <span>Send Reminder Emails</span>
             </button>
+            <button class="btn-stock" id="allocationBtn" title="Component Allocation Tracker">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"></path>
+                </svg>
+                <span>Allocation Tracker</span>
+            </button>
         </div>
 
         <div class="sidebar-footer">
@@ -177,6 +184,8 @@
                         <option value="">Issue to member...</option>
                     </select>
                     <button class="btn-log" id="logComponentBtn">Log Item</button>
+                    <button class="btn-rename" id="randomAssignBtn" type="button">Random Assign</button>
+                    <button class="btn-rename" id="regenerateAssignBtn" type="button">Regenerate</button>
                 </div>
                 <div class="stock-hint" id="stockHint"></div>
             </div>
@@ -253,6 +262,87 @@
                 <div id="reminderList" class="reminder-list"></div>
                 <div class="reminder-actions">
                     <button class="btn-rename" id="sendReminderBtn" type="button">Send Selected Emails</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="exportModal" class="modal-overlay hidden">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>Export CSV</h2>
+                <button class="modal-close" id="closeExport">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="filter-grid">
+                    <label>Mode
+                        <select id="exportMode">
+                            <option value="inventory">Full Inventory</option>
+                            <option value="team">Team-wise Export</option>
+                            <option value="allocation">Allocation Report</option>
+                            <option value="pending">Pending Components Report</option>
+                        </select>
+                    </label>
+                    <label>Sort
+                        <select id="exportSort">
+                            <option value="team">Team</option>
+                            <option value="component">Component</option>
+                            <option value="quantity">Quantity</option>
+                            <option value="status">Status</option>
+                            <option value="date">Date</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="reminder-actions">
+                    <button class="btn-rename" id="downloadExportBtn" type="button">Download CSV</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="allocationModal" class="modal-overlay hidden">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>Component Allocation Tracker</h2>
+                <button class="modal-close" id="closeAllocation">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="filter-grid">
+                    <input type="search" id="allocationSearch" placeholder="Search component, team, member, or notes...">
+                    <select id="allocationTeamFilter">
+                        <option value="">All teams</option>
+                    </select>
+                    <select id="allocationStatusFilter">
+                        <option value="">All statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="returned">Returned</option>
+                    </select>
+                    <select id="allocationSort">
+                        <option value="date">Date</option>
+                        <option value="team">Team</option>
+                        <option value="component">Component</option>
+                        <option value="quantity">Quantity</option>
+                        <option value="status">Status</option>
+                    </select>
+                </div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Team</th>
+                                <th>Quantity</th>
+                                <th>Assigned Date</th>
+                                <th>Returned Status</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="allocationBody"></tbody>
+                    </table>
+                </div>
+                <div id="allocationEmpty" class="no-items hidden">No allocations match these filters.</div>
+                <div class="reminder-actions">
+                    <button class="btn-rename" id="allocationExportBtn" type="button">Export Allocation Report</button>
                 </div>
             </div>
         </div>

@@ -34,7 +34,9 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          REMINDER_EMAIL_ENDPOINT: ${{ secrets.REMINDER_EMAIL_ENDPOINT }}
         run: |
+          REMINDER_EMAIL_ENDPOINT="${REMINDER_EMAIL_ENDPOINT:-https://asia-south1-component-tracker-cd000.cloudfunctions.net/sendReminderEmails}"
           cat > firebase-config.js <<EOF
           window.COMPONENT_TRACKER_CONFIG = {
             environment: 'production',
@@ -51,6 +53,9 @@ jobs:
             auth: {
               mode: 'firebase',
               adminEmail: '$ADMIN_EMAIL'
+            },
+            email: {
+              reminderEndpoint: '$REMINDER_EMAIL_ENDPOINT'
             },
             databasePaths: {
               production: 'componentTracker/production/state',

@@ -15,7 +15,7 @@ window.COMPONENT_TRACKER_CONFIG = {
         adminEmail: 'kprasanna@blr.amity.edu'
     },
     email: {
-        reminderEndpoint: ''
+        reminderEndpoint: 'https://asia-south1-component-tracker-cd000.cloudfunctions.net/sendReminderEmails'
     },
     databasePaths: {
         production: 'componentTracker/production/state',

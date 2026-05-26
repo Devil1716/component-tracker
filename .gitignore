@@ -1,2 +1,3 @@
 firebase-config.local.js
 functions/node_modules/
+.qa-video-frames/

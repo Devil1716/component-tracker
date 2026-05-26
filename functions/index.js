@@ -6,6 +6,8 @@ admin.initializeApp();
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'kprasanna@blr.amity.edu';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://devil1716.github.io';
+const SEND_TIMEOUT_MS = Number(process.env.SMTP_SEND_TIMEOUT_MS || 15000);
+const MAX_SEND_ATTEMPTS = Number(process.env.SMTP_SEND_ATTEMPTS || 3);
 
 function setCors(req, res) {
   const origin = req.get('origin');
@@ -34,8 +36,54 @@ function cleanText(value, max = 500) {
   return String(value || '').trim().slice(0, max);
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
 function validEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
+  const normalized = normalizeEmail(email);
+  if (!normalized || normalized.length > 254 || normalized.includes('..')) return false;
+  return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9-]+\.)+[a-z]{2,63}$/i.test(normalized);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, ms) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`SMTP send timed out after ${ms}ms`)), ms);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendMailWithRetry(transport, message, context) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
+    try {
+      await withTimeout(transport.sendMail(message), SEND_TIMEOUT_MS);
+      if (attempt > 1) console.log('Reminder email sent after retry', { ...context, attempt });
+      return true;
+    } catch (err) {
+      lastError = err;
+      console.error('Reminder email send attempt failed', {
+        ...context,
+        attempt,
+        maxAttempts: MAX_SEND_ATTEMPTS,
+        code: err?.code,
+        message: err?.message
+      });
+      if (attempt < MAX_SEND_ATTEMPTS) await sleep(500 * attempt);
+    }
+  }
+  throw lastError;
 }
 
 function buildMessage(team, recipient) {
@@ -81,27 +129,71 @@ exports.sendReminderEmails = onRequest({ region: 'asia-south1', cors: false }, a
     const teams = Array.isArray(req.body?.teams) ? req.body.teams : [];
     const transport = makeTransport();
     let sent = 0;
+    let failed = 0;
+    let skippedInvalidEmails = 0;
+    const duplicateKeys = new Set();
+    const errors = [];
 
     for (const team of teams) {
       const pending = Array.isArray(team.pendingComponents) ? team.pendingComponents.filter(item => Number(item.qty || 0) > 0) : [];
       if (!pending.length) continue;
-      const recipients = Array.isArray(team.recipients) ? team.recipients.filter(r => validEmail(r.email)) : [];
+      const rawRecipients = Array.isArray(team.recipients) ? team.recipients : [];
+      const recipients = [];
+      for (const recipient of rawRecipients) {
+        const email = normalizeEmail(recipient.email);
+        if (!validEmail(email)) {
+          skippedInvalidEmails++;
+          console.warn('Invalid reminder email skipped', {
+            team: cleanText(team.team),
+            teamNumber: cleanText(team.teamNumber),
+            email: cleanText(recipient.email, 254)
+          });
+          continue;
+        }
+        recipients.push({ ...recipient, email });
+      }
       for (const recipient of recipients) {
         const recipientPending = Array.isArray(recipient.pendingComponents) && recipient.pendingComponents.length
           ? recipient.pendingComponents.filter(item => Number(item.qty || 0) > 0)
           : pending;
         if (!recipientPending.length) continue;
-        await transport.sendMail({
+        const duplicateKey = `${cleanText(team.teamNumber)}|${recipient.email}|${recipientPending.map(item => `${item.itemId}:${item.qty}`).sort().join(';')}`;
+        if (duplicateKeys.has(duplicateKey)) {
+          console.warn('Duplicate reminder skipped', {
+            team: cleanText(team.team),
+            teamNumber: cleanText(team.teamNumber),
+            email: recipient.email
+          });
+          continue;
+        }
+        duplicateKeys.add(duplicateKey);
+        try {
+          await sendMailWithRetry(transport, {
           from: ADMIN_EMAIL,
           to: recipient.email,
           subject: `Component return reminder - ${cleanText(team.teamNumber)} ${cleanText(team.team)}`,
           text: buildMessage({ ...team, pendingComponents: recipientPending }, recipient)
-        });
-        sent++;
+          }, {
+            team: cleanText(team.team),
+            teamNumber: cleanText(team.teamNumber),
+            email: recipient.email
+          });
+          sent++;
+        } catch (err) {
+          failed++;
+          errors.push({
+            team: cleanText(team.team),
+            teamNumber: cleanText(team.teamNumber),
+            email: recipient.email,
+            message: err?.message || 'Send failed'
+          });
+          console.error('Reminder email failed after retries', errors[errors.length - 1]);
+        }
       }
     }
 
-    return res.json({ sent });
+    const status = failed ? 207 : 200;
+    return res.status(status).json({ sent, failed, skippedInvalidEmails, errors });
   } catch (err) {
     console.error('sendReminderEmails failed', err);
     return res.status(500).json({ error: 'Reminder email send failed' });

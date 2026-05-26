@@ -170,7 +170,7 @@
     };
     const FIREBASE_STATE_PATH = DATABASE_PATHS[APP_ENV] || DATABASE_PATHS.production;
     const REMINDER_EMAIL_ENDPOINT = RUNTIME_CONFIG.email?.reminderEndpoint || '';
-    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9-]+\.)+[a-z]{2,63}$/i;
 
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
@@ -181,6 +181,17 @@
     function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
     function blankMember() { return { name: '', sen: '', branch: '', email: '' }; }
     function cleanString(value, max = 200) { return String(value ?? '').trim().slice(0, max); }
+    function normalizeEmail(value) { return cleanString(value, 254).toLowerCase(); }
+    function isValidEmail(value) {
+        const email = normalizeEmail(value);
+        return Boolean(email && email.length <= 254 && !email.includes('..') && EMAIL_RE.test(email));
+    }
+    function emailValidationMessage(value, required = false) {
+        const email = normalizeEmail(value);
+        if (!email) return required ? 'Email is required.' : '';
+        if (!isValidEmail(email)) return 'Enter a valid email address, for example student@example.edu.';
+        return '';
+    }
     function cleanQuantity(value) {
         const qty = Number.parseInt(value, 10);
         return Number.isFinite(qty) && qty > 0 ? Math.min(qty, 9999) : 0;
@@ -200,7 +211,7 @@
             date: /^\d{4}-\d{2}-\d{2}$/.test(String(item?.date || '')) ? item.date : todayKey(),
             time: Number.isNaN(Date.parse(item?.time)) ? new Date().toISOString() : item.time,
             memberIndex: item?.memberIndex !== null && item?.memberIndex !== undefined && Number.isInteger(Number(item.memberIndex)) ? Number(item.memberIndex) : null,
-            memberEmail: cleanString(item?.memberEmail, 160).toLowerCase()
+            memberEmail: normalizeEmail(item?.memberEmail)
         };
     }
     function normalizeHistoryEvent(item) {
@@ -219,7 +230,7 @@
             name: cleanString(m?.name, 120),
             sen: cleanString(m?.sen, 80),
             branch: BRANCHES.includes(m?.branch) ? m.branch : '',
-            email: cleanString(m?.email, 160).toLowerCase()
+            email: normalizeEmail(m?.email)
         }));
     }
     function normalizeMeta(meta = {}, fallbackId = '') {
@@ -364,6 +375,10 @@
         }, 350);
     }
 
+    function detailsEditorHasFocus() {
+        return Boolean(detailsEditor && !detailsEditor.classList.contains('hidden') && detailsEditor.contains(document.activeElement));
+    }
+
     function renderAll() {
         if (activeTeam && !data.teams[activeTeam]) {
             activeTeam = null;
@@ -371,7 +386,7 @@
             emptyState.classList.remove('hidden');
         }
         renderTeams();
-        if (activeTeam) selectTeam(activeTeam, { keepInputs: true });
+        if (activeTeam) selectTeam(activeTeam, { keepInputs: true, preserveDetailsInputs: detailsEditorHasFocus() });
         populateDataList();
     }
 
@@ -511,6 +526,7 @@
     const detailsEditor = $('#detailsEditor'), detailsSummary = $('#detailsSummary'), editDetailsBtn = $('#editDetailsBtn');
     const componentList = $('#componentList'); // DATALIST
     const quantityInput = $('#quantityInput'), issueMemberSelect = $('#issueMemberSelect'), logComponentBtn = $('#logComponentBtn');
+    const randomAssignBtn = $('#randomAssignBtn'), regenerateAssignBtn = $('#regenerateAssignBtn');
     const inventoryBody = $('#inventoryBody'), noItemsMsg = $('#noItemsMsg');
     const exportBtn = $('#exportBtn'), summaryBtn = $('#summaryBtn'), summaryModal = $('#summaryModal');
     const summaryContent = $('#summaryContent'), closeSummary = $('#closeSummary');
@@ -521,6 +537,10 @@
     const currentDateEl = $('#currentDate');
     const reminderBtn = $('#reminderBtn'), reminderModal = $('#reminderModal'), closeReminder = $('#closeReminder');
     const reminderList = $('#reminderList'), reminderStatus = $('#reminderStatus'), sendReminderBtn = $('#sendReminderBtn');
+    const exportModal = $('#exportModal'), closeExport = $('#closeExport'), exportMode = $('#exportMode'), exportSort = $('#exportSort'), downloadExportBtn = $('#downloadExportBtn');
+    const allocationBtn = $('#allocationBtn'), allocationModal = $('#allocationModal'), closeAllocation = $('#closeAllocation');
+    const allocationSearch = $('#allocationSearch'), allocationTeamFilter = $('#allocationTeamFilter'), allocationStatusFilter = $('#allocationStatusFilter'), allocationSort = $('#allocationSort');
+    const allocationBody = $('#allocationBody'), allocationEmpty = $('#allocationEmpty'), allocationExportBtn = $('#allocationExportBtn');
 
     const sidebar = $('#sidebar'), sidebarToggle = $('#sidebarToggle');
 
@@ -678,10 +698,12 @@
                 <input type="text" data-field="name" value="${esc(member.name)}" placeholder="Name">
                 <input type="text" data-field="sen" value="${esc(member.sen)}" placeholder="SEN">
                 <input type="text" inputmode="email" data-field="email" value="${esc(member.email)}" placeholder="College email ID">
+                <div class="field-error" data-error-for="email"></div>
                 <select data-field="branch">${branchOptions}</select>
             </div>`;
         }).join('');
         renderDetailsState();
+        validateMemberInputs(false);
     }
 
     function teamNumberAvailable(id, currentTeam = activeTeam) {
@@ -691,7 +713,9 @@
     }
 
     function memberDetailsComplete(members) {
-        return normalizeMembers(members).every(member => member.name && member.sen && member.branch && EMAIL_RE.test(member.email));
+        const normalized = normalizeMembers(members);
+        const filled = normalized.filter(member => member.name || member.sen || member.branch || member.email);
+        return Boolean(filled.length) && filled.every(member => member.name && member.sen && member.branch && isValidEmail(member.email));
     }
 
     function teamDetailsComplete(meta) {
@@ -708,7 +732,7 @@
         detailsSummary.classList.toggle('hidden', !collapsed);
         editDetailsBtn.classList.toggle('hidden', !collapsed);
         if (collapsed) {
-            const filled = members.filter(member => member.name && member.sen && member.branch && EMAIL_RE.test(member.email)).length;
+            const filled = members.filter(member => member.name && member.sen && member.branch && isValidEmail(member.email)).length;
             detailsSummary.innerHTML = `<strong>${esc(meta.id)} - ${filled}/${MEMBER_COUNT} members saved</strong><span>${esc(meta.projectName)} - ${esc(activeTeam)}</span>`;
         }
     }
@@ -721,36 +745,28 @@
         renderDetailsState(true);
     }
 
-    function updateMember(target) {
-        if (!activeTeam) return;
-        if (detailsSaveInProgress) return;
-        const card = target.closest('.member-card');
-        if (!card) return;
-        const index = Number(card.dataset.index);
-        const field = target.dataset.field;
-        if (!Number.isInteger(index) || !field) return;
-        const meta = data.meta[activeTeam] || { members: normalizeMembers() };
-        meta.members = normalizeMembers(meta.members);
-        meta.members[index][field] = field === 'email' ? target.value.trim().toLowerCase() : target.value.trim();
-        meta.detailsCollapsed = false;
-        data.meta[activeTeam] = meta;
-        save(data);
-        setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
-        renderDetailsState();
+    function validateMemberInputs(showRequired = false) {
+        let valid = true;
+        membersGrid.querySelectorAll('.member-card').forEach(card => {
+            const emailInput = card.querySelector('[data-field="email"]');
+            const error = card.querySelector('[data-error-for="email"]');
+            if (!emailInput || !error) return;
+            const rowHasValue = [...card.querySelectorAll('[data-field]')].some(input => cleanString(input.value, 254));
+            const msg = emailValidationMessage(emailInput.value, showRequired && rowHasValue);
+            emailInput.classList.toggle('invalid', Boolean(msg));
+            error.textContent = msg;
+            if (msg) valid = false;
+        });
+        return valid;
     }
 
-    function updateTeamMetaField(target) {
-        if (!activeTeam) return;
-        if (detailsSaveInProgress) return;
-        const meta = data.meta[activeTeam] || { members: normalizeMembers() };
-        if (target === teamNumberInput) meta.id = cleanString(target.value, 40);
-        if (target === projectNameInput) meta.projectName = cleanString(target.value, 160);
-        meta.detailsCollapsed = false;
-        data.meta[activeTeam] = normalizeMeta(meta);
-        save(data);
+    function updateMember(target) {
+        if (target?.dataset?.field === 'email') validateMemberInputs(false);
         renderDetailsState(true);
-        renderTeams();
-        setSyncStatus(firebaseReady ? 'Saving to cloud...' : 'Saved locally. Sync pending.', 'info');
+    }
+
+    function updateTeamMetaField() {
+        renderDetailsState(true);
     }
 
     function saveTeamDetails() {
@@ -759,7 +775,7 @@
         const members = [...membersGrid.querySelectorAll('.member-card')].map(card => ({
             name: card.querySelector('[data-field="name"]')?.value || '',
             sen: card.querySelector('[data-field="sen"]')?.value || '',
-            email: card.querySelector('[data-field="email"]')?.value || '',
+            email: normalizeEmail(card.querySelector('[data-field="email"]')?.value || ''),
             branch: card.querySelector('[data-field="branch"]')?.value || ''
         }));
         const meta = normalizeMeta({
@@ -772,13 +788,13 @@
         if (!meta.id) { finish(); return toast('Enter a team number', 'danger'); }
         if (!teamNumberAvailable(meta.id)) { finish(); return toast('Team number already exists', 'danger'); }
         if (!meta.projectName) { finish(); return toast('Enter a project name', 'danger'); }
-        const invalidEmail = meta.members.find(member => member.email && !EMAIL_RE.test(member.email));
-        if (invalidEmail) { finish(); return toast(`Invalid email: ${invalidEmail.email}`, 'danger'); }
-        if (!memberDetailsComplete(meta.members)) { finish(); return toast('Fill all member names, SEN, branch, and college emails', 'danger'); }
+        if (!validateMemberInputs(true)) { finish(); return toast('Fix the highlighted email addresses', 'danger'); }
+        if (!memberDetailsComplete(meta.members)) { finish(); return toast('Complete each entered member with name, SEN, branch, and email', 'danger'); }
         meta.detailsCollapsed = true;
         data.meta[activeTeam] = meta;
         save(data);
         renderTeams();
+        populateIssueMemberSelect();
         renderDetailsState();
         toast('Team details saved');
         setSyncStatus(firebaseReady ? 'Saved to cloud.' : 'Saved locally. Sync pending.', 'success');
@@ -849,12 +865,15 @@
 
         const meta = data.meta[name] || { id: '???' };
         teamTitle.innerHTML = `<span style="font-size:0.5em;opacity:0.6;margin-right:12px;vertical-align:middle;border:1px solid #ccc;padding:2px 6px;border-radius:4px">${esc(meta.id)}</span>${esc(name)}${meta.projectName ? `<small class="team-title-project">${esc(meta.projectName)}</small>` : ''}`;
-        teamRenameInput.value = name;
-        teamNumberInput.value = meta.id || '';
-        projectNameInput.value = meta.projectName || '';
+        if (!options.preserveDetailsInputs) {
+            teamRenameInput.value = name;
+            teamNumberInput.value = meta.id || '';
+            projectNameInput.value = meta.projectName || '';
+        }
 
         renderTeams();
-        renderMembers();
+        if (!options.preserveDetailsInputs) renderMembers();
+        else renderDetailsState(true);
         renderInventory();
         populateDataList();
         populateIssueMemberSelect();
@@ -902,6 +921,37 @@
     }
 
     // ── Log component ──────────────────────────────────────
+    function validAssignableMembers(team = activeTeam) {
+        return normalizeMembers(data.meta[team]?.members)
+            .map((member, index) => ({ ...member, index }))
+            .filter(member => member.name && isValidEmail(member.email));
+    }
+
+    function chooseFairMember(itemId, team = activeTeam, excludeIndex = null) {
+        const members = validAssignableMembers(team).filter(member => member.index !== excludeIndex);
+        if (!members.length) return null;
+        const items = data.teams[team] || [];
+        const scored = members.map(member => ({
+            ...member,
+            load: items.reduce((sum, item) => sum + (item.memberIndex === member.index ? item.qty : 0), 0),
+            sameComponent: items.some(item => item.itemId === itemId && item.memberIndex === member.index)
+        })).filter(member => !member.sameComponent);
+        const pool = scored.length ? scored : members.map(member => ({ ...member, load: 0 }));
+        const minLoad = Math.min(...pool.map(member => member.load));
+        const lightest = pool.filter(member => member.load === minLoad);
+        return lightest[Math.floor(Math.random() * lightest.length)];
+    }
+
+    function setFairRandomMember(regenerate = false) {
+        const itemId = getSelectedId();
+        if (!itemId) return toast('Select a valid component first', 'danger');
+        const current = issueMemberSelect.value === '' ? null : Number(issueMemberSelect.value);
+        const member = chooseFairMember(itemId, activeTeam, regenerate ? current : null);
+        if (!member) return toast('No eligible members with valid emails', 'danger');
+        issueMemberSelect.value = String(member.index);
+        toast(`${regenerate ? 'Regenerated' : 'Assigned'} to ${member.name}`, 'info');
+    }
+
     function logComponent() {
         if (!activeTeam) return;
         const itemId = getSelectedId();
@@ -913,14 +963,14 @@
         if (qty > remaining) return toast(`Only ${remaining} left`, 'danger');
         const memberIndex = issueMemberSelect.value === '' ? null : Number(issueMemberSelect.value);
         const member = Number.isInteger(memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[memberIndex] : null;
-        if (!member || !member.name || !EMAIL_RE.test(member.email)) return toast('Select a member with a valid college email', 'danger');
+        if (!member || !member.name || !isValidEmail(member.email)) return toast('Select a member with a valid email', 'danger');
 
         const now = new Date();
         const dateKey = toDateKey(now);
         const uid = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
         const existing = (data.teams[activeTeam] || []).find(
-            c => c.itemId === itemId && c.date === dateKey
+            c => c.itemId === itemId && c.memberIndex === memberIndex
         );
         if (existing) {
             existing.qty += qty;
@@ -984,6 +1034,46 @@
         toast(`Returned ${qtyToReturn} item(s)`);
     }
 
+    function reassignItem(uid) {
+        if (!activeTeam) return;
+        const teamItems = data.teams[activeTeam] || [];
+        const item = teamItems.find(c => c.uid === uid);
+        if (!item) return;
+        const members = validAssignableMembers(activeTeam);
+        if (!members.length) return toast('No eligible members with valid emails', 'danger');
+        const options = members.map(member => `${member.index + 1}: ${member.name} <${member.email}>`).join('\n');
+        const choice = prompt(`Reassign to member number:\n${options}`, String((item.memberIndex ?? 0) + 1));
+        if (choice === null) return;
+        const nextIndex = Number(choice) - 1;
+        const nextMember = members.find(member => member.index === nextIndex);
+        if (!nextMember) return toast('Select a valid member number', 'danger');
+        const now = new Date();
+        const duplicate = teamItems.find(c => c.uid !== uid && c.itemId === item.itemId && c.memberIndex === nextMember.index);
+        if (duplicate) {
+            duplicate.qty += item.qty;
+            duplicate.time = now.toISOString();
+            teamItems.splice(teamItems.indexOf(item), 1);
+        } else {
+            item.memberIndex = nextMember.index;
+            item.memberEmail = nextMember.email;
+            item.time = now.toISOString();
+        }
+        data.history.push({
+            type: 'take',
+            uid: Date.now().toString(36),
+            itemId: item.itemId,
+            qty: item.qty,
+            date: toDateKey(now),
+            time: now.toISOString(),
+            team: activeTeam,
+            memberIndex: nextMember.index,
+            memberEmail: nextMember.email
+        });
+        save(data);
+        renderInventory();
+        toast(`Reassigned to ${nextMember.name}`);
+    }
+
     // ── Render inventory ──────────────────────────────────
     function renderInventory() {
         if (!activeTeam) return;
@@ -1025,7 +1115,7 @@
         <td>${esc(issuedTo)}</td>
         <td><div class="qty-cell"><span class="qty-val">${item.qty}</span></div></td>
         <td style="color:var(--text-dim)">${ts}</td>
-        <td><button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button></td>`;
+        <td><button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button> <button class="return-btn reassign-btn" data-uid="${item.uid}">Reassign</button></td>`;
                 inventoryBody.appendChild(tr);
             });
         });
@@ -1033,41 +1123,162 @@
 
     inventoryBody.addEventListener('click', e => {
         const rb = e.target.closest('.return-btn');
+        if (rb?.classList.contains('reassign-btn')) return reassignItem(rb.dataset.uid);
         if (rb) return returnItem(rb.dataset.uid, parseInt(rb.dataset.qty));
     });
 
     componentSelect.addEventListener('input', updateStockHint);
 
     // ── Export CSV ─────────────────────────────────────────
-    function exportCSV() {
-        if (!data.history.length) return toast('No history', 'info');
-        let csv = 'Type,Team ID,Team Name,Project Name,Component,Qty,Date,Time\n';
-        const sorted = [...data.history].sort((a, b) => b.time.localeCompare(a.time));
-        const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-        sorted.forEach(h => {
-            const meta = data.meta[h.team] || { id: '' };
-            const it = ITEM_MAP[h.itemId];
-            const d = new Date(h.time);
-            const type = h.type === 'return' ? 'RETURNED' : 'TAKEN';
-            csv += [
-                csvCell(type),
-                csvCell(meta.id),
-                csvCell(h.team),
-                csvCell(meta.projectName || ''),
-                csvCell(it ? it.name : '?'),
-                h.qty,
-                csvCell(h.date),
-                csvCell(d.toLocaleTimeString())
-            ].join(',') + '\n';
-        });
-        const b = new Blob([csv], { type: 'text/csv' });
+    const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+    function downloadCSV(filename, headers, rows) {
+        const csv = [
+            headers.map(csvCell).join(','),
+            ...rows.map(row => headers.map(header => csvCell(row[header])).join(','))
+        ].join('\n') + '\n';
+        const b = new Blob([csv], { type: 'text/csv;charset=utf-8' });
         const u = URL.createObjectURL(b);
         const a = document.createElement('a');
         a.href = u;
-        a.download = 'component_log_full.csv';
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(u);
-        toast('Full History CSV exported');
+    }
+
+    function allocationRows(includeReturned = false) {
+        const pending = [];
+        data.order.forEach(team => {
+            const meta = normalizeMeta(data.meta[team] || {});
+            const members = normalizeMembers(meta.members);
+            (data.teams[team] || []).forEach(item => {
+                const catalog = ITEM_MAP[item.itemId];
+                const member = Number.isInteger(item.memberIndex) ? members[item.memberIndex] : null;
+                pending.push({
+                    Component: catalog ? catalog.name : 'Unknown component',
+                    Team: team,
+                    'Team ID': meta.id,
+                    'Project Name': meta.projectName,
+                    Member: member?.name || '',
+                    Email: item.memberEmail || member?.email || '',
+                    Quantity: item.qty,
+                    'Assigned Date': item.date || '',
+                    Status: 'Pending',
+                    Notes: item.memberEmail ? `Issued to ${member?.name || item.memberEmail}` : 'Issued to team'
+                });
+            });
+        });
+        if (!includeReturned) return pending;
+        const returned = data.history
+            .filter(item => item.type === 'return')
+            .map(item => {
+                const meta = normalizeMeta(data.meta[item.team] || {});
+                const catalog = ITEM_MAP[item.itemId];
+                return {
+                    Component: catalog ? catalog.name : 'Unknown component',
+                    Team: item.team,
+                    'Team ID': meta.id,
+                    'Project Name': meta.projectName,
+                    Member: '',
+                    Email: '',
+                    Quantity: item.qty,
+                    'Assigned Date': item.date || '',
+                    Status: 'Returned',
+                    Notes: 'Returned to inventory'
+                };
+            });
+        return pending.concat(returned);
+    }
+
+    function sortRows(rows, sortKey) {
+        const keyMap = {
+            team: 'Team',
+            component: 'Component',
+            quantity: 'Quantity',
+            status: 'Status',
+            date: 'Assigned Date'
+        };
+        const key = keyMap[sortKey] || 'Team';
+        return rows.sort((a, b) => {
+            if (key === 'Quantity') return Number(b[key] || 0) - Number(a[key] || 0);
+            const aValue = a[key] ?? a.Date ?? '';
+            const bValue = b[key] ?? b.Date ?? '';
+            if (key === 'Assigned Date') return String(bValue).localeCompare(String(aValue));
+            return String(aValue).localeCompare(String(bValue));
+        });
+    }
+
+    function buildExportRows(mode, sortKey) {
+        if (mode === 'inventory') {
+            const rows = CATALOG.flatMap(cat => cat.items.map(item => ({
+                Category: cat.cat,
+                Component: item.name,
+                'Total Stock': item.stock,
+                Allocated: getTotalUsed(item.id),
+                Available: getRemaining(item.id),
+                Status: getRemaining(item.id) <= 0 ? 'Out of stock' : 'Available'
+            })));
+            return { filename: 'full_inventory.csv', headers: ['Category', 'Component', 'Total Stock', 'Allocated', 'Available', 'Status'], rows };
+        }
+        if (mode === 'team') {
+            const rows = allocationRows(false).map(row => ({
+                'Team ID': row['Team ID'],
+                Team: row.Team,
+                'Project Name': row['Project Name'],
+                Component: row.Component,
+                Member: row.Member,
+                Email: row.Email,
+                Quantity: row.Quantity,
+                Date: row['Assigned Date'],
+                Status: row.Status
+            }));
+            return { filename: 'team_wise_components.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Date', 'Status'], rows: sortRows(rows, sortKey) };
+        }
+        if (mode === 'pending') {
+            const rows = allocationRows(false);
+            return { filename: 'pending_components_report.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'], rows: sortRows(rows, sortKey) };
+        }
+        const rows = allocationRows(true);
+        return { filename: 'allocation_report.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'], rows: sortRows(rows, sortKey) };
+    }
+
+    function exportCSV(mode = exportMode?.value || 'inventory', sortKey = exportSort?.value || 'team') {
+        const { filename, headers, rows } = buildExportRows(mode, sortKey);
+        if (!rows.length) return toast('Nothing to export', 'info');
+        downloadCSV(filename, headers, rows);
+        toast('CSV exported');
+    }
+
+    function renderAllocationTracker() {
+        allocationTeamFilter.innerHTML = '<option value="">All teams</option>' + data.order
+            .map(team => `<option value="${esc(team)}">${esc(team)}</option>`)
+            .join('');
+        updateAllocationTracker();
+    }
+
+    function updateAllocationTracker() {
+        const query = normalizeEmail(allocationSearch.value).replace(/@/g, ' ');
+        const teamFilter = allocationTeamFilter.value;
+        const statusFilter = allocationStatusFilter.value;
+        const rows = sortRows(allocationRows(true), allocationSort.value)
+            .filter(row => !teamFilter || row.Team === teamFilter)
+            .filter(row => !statusFilter || row.Status.toLowerCase() === statusFilter)
+            .filter(row => {
+                if (!query) return true;
+                const haystack = [row.Component, row.Team, row.Member, row.Email, row.Notes, row['Project Name'], row['Team ID']]
+                    .join(' ')
+                    .toLowerCase();
+                return query.split(/\s+/).every(part => !part || haystack.includes(part));
+            });
+        allocationBody.innerHTML = rows.map(row => `<tr>
+            <td>${esc(row.Component)}</td>
+            <td>${esc(row['Team ID'])} - ${esc(row.Team)}</td>
+            <td>${esc(row.Quantity)}</td>
+            <td>${esc(row['Assigned Date'])}</td>
+            <td>${esc(row.Status)}</td>
+            <td>${esc(row.Notes)}</td>
+        </tr>`).join('');
+        allocationEmpty.classList.toggle('hidden', rows.length > 0);
     }
 
     // ── Modals ─────────────────────────────────────────────
@@ -1143,11 +1354,11 @@
                 };
             });
             const members = normalizeMembers(meta.members);
-            const validMembers = members.filter(member => member.name && EMAIL_RE.test(member.email));
+            const validMembers = members.filter(member => member.name && isValidEmail(member.email));
             const recipientMap = new Map();
             pendingComponents.forEach(component => {
                 const member = Number.isInteger(component.memberIndex) ? members[component.memberIndex] : null;
-                const targets = member && EMAIL_RE.test(member.email) ? [member] : validMembers;
+                const targets = member && isValidEmail(member.email) ? [member] : validMembers;
                 targets.forEach(target => {
                     if (!recipientMap.has(target.email)) {
                         recipientMap.set(target.email, {
@@ -1183,7 +1394,7 @@
         }
         reminderStatus.textContent = REMINDER_EMAIL_ENDPOINT
             ? `Select teams to email. Sender: ${ADMIN_EMAIL}`
-            : 'Email backend is not configured. Set COMPONENT_TRACKER_CONFIG.email.reminderEndpoint after deploying the Firebase Function.';
+            : 'Reminder service is not connected. Add the Firebase Function URL in COMPONENT_TRACKER_CONFIG.email.reminderEndpoint.';
         reminderStatus.className = REMINDER_EMAIL_ENDPOINT ? 'reminder-status' : 'reminder-status danger';
         sendReminderBtn.disabled = !REMINDER_EMAIL_ENDPOINT;
         reminderList.innerHTML = teams.map(item => {
@@ -1213,7 +1424,7 @@
     async function sendReminderEmails() {
         const selected = [...reminderList.querySelectorAll('.reminder-check:checked')].map(input => input.value);
         if (!selected.length) return toast('Select at least one team', 'danger');
-        if (!REMINDER_EMAIL_ENDPOINT) return toast('Email backend is not configured', 'danger');
+        if (!REMINDER_EMAIL_ENDPOINT) return toast('Reminder service is not connected yet', 'danger');
         const payload = {
             adminEmail: ADMIN_EMAIL,
             teams: pendingTeams().filter(item => selected.includes(item.team))
@@ -1223,27 +1434,65 @@
         reminderStatus.textContent = 'Sending reminder emails...';
         reminderStatus.className = 'reminder-status';
         try {
-            const response = await fetch(REMINDER_EMAIL_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(firebaseAuthToken ? { Authorization: `Bearer ${firebaseAuthToken}` } : {})
+            const response = await fetchWithRetry(REMINDER_EMAIL_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(firebaseAuthToken ? { Authorization: `Bearer ${firebaseAuthToken}` } : {})
+                    },
+                    body: JSON.stringify(payload)
                 },
-                body: JSON.stringify(payload)
-            });
+                3,
+                15000
+            );
             const result = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(result.error || 'Reminder email send failed.');
-            reminderStatus.textContent = `Sent ${result.sent || 0} reminder email(s).`;
-            reminderStatus.className = 'reminder-status success';
-            toast('Reminder emails sent');
+            if (!response.ok && response.status !== 207) throw new Error(userFriendlyReminderError(response.status, result));
+            const failedText = result.failed ? ` ${result.failed} failed; check function logs.` : '';
+            const skippedText = result.skippedInvalidEmails ? ` ${result.skippedInvalidEmails} invalid email(s) skipped.` : '';
+            reminderStatus.textContent = `Sent ${result.sent || 0} reminder email(s).${failedText}${skippedText}`;
+            reminderStatus.className = result.failed ? 'reminder-status danger' : 'reminder-status success';
+            toast(result.failed ? 'Some reminder emails failed' : 'Reminder emails sent', result.failed ? 'danger' : 'success');
         } catch (err) {
-            reminderStatus.textContent = err?.message || 'Reminder email send failed.';
+            console.error('Reminder request failed', err);
+            reminderStatus.textContent = err?.friendlyMessage || err?.message || 'Could not send reminders. Check your internet connection and try again.';
             reminderStatus.className = 'reminder-status danger';
             toast('Reminder email send failed', 'danger');
         } finally {
             sendReminderBtn.disabled = false;
             sendReminderBtn.textContent = 'Send Selected Emails';
         }
+    }
+
+    function userFriendlyReminderError(status, result = {}) {
+        if (status === 401 || status === 403) return 'Your admin session expired or is not allowed to send reminders. Sign in again.';
+        if (status === 500 && /SMTP/i.test(result.error || '')) return 'Reminder mail service is not configured on the server.';
+        if (status >= 500) return 'Reminder service is temporarily unavailable. Please try again shortly.';
+        return 'Could not send reminders. Check selected teams and try again.';
+    }
+
+    async function fetchWithRetry(url, options, attempts = 3, timeoutMs = 15000) {
+        let lastError;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(timeout);
+                if (response.status >= 500 && attempt < attempts) throw new Error(`Server unavailable (${response.status})`);
+                return response;
+            } catch (err) {
+                clearTimeout(timeout);
+                lastError = err;
+                console.warn('Reminder request attempt failed', { attempt, attempts, message: err?.message });
+                if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+            }
+        }
+        const message = lastError?.name === 'AbortError'
+            ? 'Reminder service timed out. Please check the network and try again.'
+            : 'Network problem while sending reminders. Please try again.';
+        const friendly = new Error(message);
+        friendly.friendlyMessage = message;
+        throw friendly;
     }
 
     // ── Daily Log ──────────────────────────────────────────
@@ -1308,15 +1557,20 @@
     renameTeamBtn.addEventListener('click', renameTeam);
     editDetailsBtn.addEventListener('click', openDetailsEditor);
     teamRenameInput.addEventListener('keydown', e => { if (e.key === 'Enter') renameTeam(); });
-    teamNumberInput.addEventListener('change', e => updateTeamMetaField(e.target));
-    projectNameInput.addEventListener('change', e => updateTeamMetaField(e.target));
+    teamNumberInput.addEventListener('input', updateTeamMetaField);
+    projectNameInput.addEventListener('input', updateTeamMetaField);
     saveDetailsBtn.addEventListener('click', saveTeamDetails);
+    membersGrid.addEventListener('input', e => updateMember(e.target));
     membersGrid.addEventListener('change', e => updateMember(e.target));
-    membersGrid.addEventListener('blur', e => updateMember(e.target), true);
     deleteTeamBtn.addEventListener('click', deleteTeam);
     logComponentBtn.addEventListener('click', logComponent);
+    randomAssignBtn.addEventListener('click', () => setFairRandomMember(false));
+    regenerateAssignBtn.addEventListener('click', () => setFairRandomMember(true));
     quantityInput.addEventListener('keydown', e => { if (e.key === 'Enter') logComponent(); });
-    exportBtn.addEventListener('click', exportCSV);
+    exportBtn.addEventListener('click', () => exportModal.classList.remove('hidden'));
+    closeExport.addEventListener('click', () => exportModal.classList.add('hidden'));
+    exportModal.addEventListener('click', e => { if (e.target === exportModal) exportModal.classList.add('hidden'); });
+    downloadExportBtn.addEventListener('click', () => exportCSV());
     summaryBtn.addEventListener('click', showSummary);
     closeSummary.addEventListener('click', () => summaryModal.classList.add('hidden'));
     summaryModal.addEventListener('click', e => { if (e.target === summaryModal) summaryModal.classList.add('hidden'); });
@@ -1333,6 +1587,14 @@
     closeReminder.addEventListener('click', () => reminderModal.classList.add('hidden'));
     reminderModal.addEventListener('click', e => { if (e.target === reminderModal) reminderModal.classList.add('hidden'); });
     sendReminderBtn.addEventListener('click', sendReminderEmails);
+    allocationBtn.addEventListener('click', () => { renderAllocationTracker(); allocationModal.classList.remove('hidden'); });
+    closeAllocation.addEventListener('click', () => allocationModal.classList.add('hidden'));
+    allocationModal.addEventListener('click', e => { if (e.target === allocationModal) allocationModal.classList.add('hidden'); });
+    [allocationSearch, allocationTeamFilter, allocationStatusFilter, allocationSort].forEach(control => {
+        control.addEventListener('input', updateAllocationTracker);
+        control.addEventListener('change', updateAllocationTracker);
+    });
+    allocationExportBtn.addEventListener('click', () => exportCSV('allocation', allocationSort.value));
 
     // ── Init ───────────────────────────────────────────────
     initToast();

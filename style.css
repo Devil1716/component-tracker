@@ -779,6 +779,19 @@ tr:hover {
   box-shadow: 0 0 0 3px rgba(27, 50, 93, 0.1);
 }
 
+.member-card input.invalid,
+.member-card select.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.field-error {
+  min-height: 16px;
+  color: var(--danger);
+  font-size: .75rem;
+  font-weight: 600;
+}
+
 .btn-rename {
   padding: 10px 14px;
   border: none;
@@ -916,6 +929,42 @@ tr:hover {
   border-radius: var(--radius-sm);
   font-size: .95rem;
   outline: none;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filter-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--amity-blue);
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.filter-grid input,
+.filter-grid select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  font-size: .9rem;
+  outline: none;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.table-scroll {
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
 }
 
 .modal-search input:focus {
