@@ -536,7 +536,7 @@
     const closeDaily = $('#closeDaily'), prevDay = $('#prevDay'), nextDay = $('#nextDay');
     const currentDateEl = $('#currentDate');
     const reminderBtn = $('#reminderBtn'), reminderModal = $('#reminderModal'), closeReminder = $('#closeReminder');
-    const reminderList = $('#reminderList'), reminderStatus = $('#reminderStatus'), sendReminderBtn = $('#sendReminderBtn');
+    const reminderList = $('#reminderList'), reminderStatus = $('#reminderStatus'), reminderFallback = $('#reminderFallback'), sendReminderBtn = $('#sendReminderBtn');
     const exportModal = $('#exportModal'), closeExport = $('#closeExport'), exportMode = $('#exportMode'), exportSort = $('#exportSort'), downloadExportBtn = $('#downloadExportBtn');
     const allocationBtn = $('#allocationBtn'), allocationModal = $('#allocationModal'), closeAllocation = $('#closeAllocation');
     const allocationSearch = $('#allocationSearch'), allocationTeamFilter = $('#allocationTeamFilter'), allocationStatusFilter = $('#allocationStatusFilter'), allocationSort = $('#allocationSort');
@@ -1384,6 +1384,8 @@
     }
 
     function renderReminderTeams() {
+        reminderFallback.classList.add('hidden');
+        reminderFallback.innerHTML = '';
         const teams = pendingTeams();
         if (!teams.length) {
             reminderStatus.textContent = 'No teams have pending components.';
@@ -1456,6 +1458,7 @@
             console.error('Reminder request failed', err);
             reminderStatus.textContent = err?.friendlyMessage || err?.message || 'Could not send reminders. Check your internet connection and try again.';
             reminderStatus.className = 'reminder-status danger';
+            renderMailtoFallback(payload.teams);
             toast('Reminder email send failed', 'danger');
         } finally {
             sendReminderBtn.disabled = false;
@@ -1466,8 +1469,46 @@
     function userFriendlyReminderError(status, result = {}) {
         if (status === 401 || status === 403) return 'Your admin session expired or is not allowed to send reminders. Sign in again.';
         if (status === 500 && /SMTP/i.test(result.error || '')) return 'Reminder mail service is not configured on the server.';
+        if (status === 404) return 'Reminder service is not deployed for this Firebase project yet.';
         if (status >= 500) return 'Reminder service is temporarily unavailable. Please try again shortly.';
         return 'Could not send reminders. Check selected teams and try again.';
+    }
+
+    function reminderMailBody(team, recipient) {
+        const components = (recipient.pendingComponents?.length ? recipient.pendingComponents : team.pendingComponents)
+            .map(item => `- ${item.name} x${item.qty}`)
+            .join('\n');
+        return [
+            `Hello ${recipient.name || 'Student'},`,
+            '',
+            'This is a reminder to return pending lab components.',
+            '',
+            `Team number: ${team.teamNumber}`,
+            `Team name: ${team.team}`,
+            `Project name: ${team.projectName || 'Project name pending'}`,
+            '',
+            'Pending components:',
+            components || '- No pending components listed',
+            '',
+            'Please return the listed components to the lab as soon as possible.',
+            '',
+            'Regards,',
+            ADMIN_EMAIL
+        ].join('\n');
+    }
+
+    function renderMailtoFallback(teams) {
+        const links = [];
+        teams.forEach(team => {
+            team.recipients.forEach(recipient => {
+                const subject = `Component return reminder - ${team.teamNumber} ${team.team}`;
+                const href = `mailto:${encodeURIComponent(recipient.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderMailBody(team, recipient))}`;
+                links.push(`<a href="${href}">Open draft for ${esc(recipient.name || recipient.email)} (${esc(team.teamNumber)} - ${esc(team.team)})</a>`);
+            });
+        });
+        if (!links.length) return;
+        reminderFallback.innerHTML = `<strong>Automatic sending is unavailable.</strong><span>Use these draft links until the Firebase Function is deployed on a Blaze-enabled project.</span>${links.join('')}`;
+        reminderFallback.classList.remove('hidden');
     }
 
     async function fetchWithRetry(url, options, attempts = 3, timeoutMs = 15000) {
