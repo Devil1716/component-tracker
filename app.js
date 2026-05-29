@@ -409,9 +409,11 @@
             teamView.classList.add('hidden');
             emptyState.classList.remove('hidden');
         }
-        renderTeams();
-        if (activeTeam) selectTeam(activeTeam, { keepInputs: true, preserveDetailsInputs: detailsEditorHasFocus() || detailsEditorIsOpen() });
-        populateDataList();
+        if (activeTeam) {
+            selectTeam(activeTeam, { keepInputs: true, preserveDetailsInputs: detailsEditorHasFocus() || detailsEditorIsOpen() });
+        } else {
+            renderTeams();
+        }
     }
 
     function isAllowedAdminUser(user) {
@@ -654,30 +656,27 @@
 
     // ── Populate DataList ──────────────────────────────────
     function populateDataList() {
-        componentList.innerHTML = '';
+        let html = '';
         CATALOG.forEach(cat => {
             cat.items.forEach(it => {
                 const r = getRemaining(it.id);
-                const o = document.createElement('option');
-                o.value = `[${it.id}] ${it.name}`;
-                o.label = `${cat.cat} (${r} left)`;
-                componentList.appendChild(o);
+                html += `<option value="[${it.id}] ${esc(it.name)}" label="${esc(cat.cat)} (${r} left)"></option>`;
             });
         });
+        componentList.innerHTML = html;
     }
 
     function populateIssueMemberSelect() {
         if (!issueMemberSelect) return;
-        issueMemberSelect.innerHTML = '<option value="">Issue to member...</option>';
-        if (!activeTeam) return;
-        const members = normalizeMembers(data.meta[activeTeam]?.members);
-        members.forEach((member, index) => {
-            if (!member.name && !member.email) return;
-            const option = document.createElement('option');
-            option.value = String(index);
-            option.textContent = `${member.name || `Member ${index + 1}`}${member.email ? ` (${member.email})` : ''}`;
-            issueMemberSelect.appendChild(option);
-        });
+        let html = '<option value="">Issue to member...</option>';
+        if (activeTeam) {
+            const members = normalizeMembers(data.meta[activeTeam]?.members);
+            members.forEach((member, index) => {
+                if (!member.name && !member.email) return;
+                html += `<option value="${index}">${esc(member.name || `Member ${index + 1}`)}${member.email ? ` (${esc(member.email)})` : ''}</option>`;
+            });
+        }
+        issueMemberSelect.innerHTML = html;
     }
 
     function getSelectedId() {
@@ -890,9 +889,10 @@
     }
 
     function renderTeams() {
-        teamListEl.innerHTML = '';
         const query = cleanString(teamSearchInput?.value, 120).toLowerCase();
-        let rendered = 0;
+        let html = '';
+        let matchesCount = 0;
+        
         data.order.forEach(name => {
             const meta = data.meta[name] || { id: '???', projectName: '' };
             const matches = !query
@@ -900,22 +900,23 @@
                 || cleanString(meta.projectName, 160).toLowerCase().includes(query)
                 || cleanString(meta.id, 40).toLowerCase().includes(query);
             if (!matches) return;
-            rendered++;
-            const d = document.createElement('div');
-            d.className = 'team-item' + (name === activeTeam ? ' active' : '');
+            matchesCount++;
+            const activeClass = name === activeTeam ? ' active' : '';
             const items = data.teams[name] || [];
             const totalQty = items.reduce((s, c) => s + c.qty, 0);
-
-            // Using standard team item logic (SVG removed from JS, handled by CSS/HTML structure)
-            // Team ID + Name + Badge
-            d.innerHTML = `<span class="team-id">${esc(meta.id)}</span>
-      <span class="team-list-copy"><strong>${esc(name)}</strong><small>${esc(meta.projectName || 'Project name pending')}</small></span>`
-                + (totalQty ? `<span class="badge">${totalQty}</span>` : '');
-            d.addEventListener('click', () => selectTeam(name));
-            teamListEl.appendChild(d);
+            const badgeHtml = totalQty ? `<span class="badge">${totalQty}</span>` : '';
+            
+            html += `<div class="team-item${activeClass}" data-name="${esc(name)}">
+                <span class="team-id">${esc(meta.id)}</span>
+                <span class="team-list-copy"><strong>${esc(name)}</strong><small>${esc(meta.projectName || 'Project name pending')}</small></span>
+                ${badgeHtml}
+            </div>`;
         });
-        if (!rendered) {
+        
+        if (!matchesCount) {
             teamListEl.innerHTML = '<div class="team-empty">No matching teams</div>';
+        } else {
+            teamListEl.innerHTML = html;
         }
     }
 
@@ -1144,8 +1145,12 @@
     function renderInventory() {
         if (!activeTeam) return;
         const items = data.teams[activeTeam] || [];
-        inventoryBody.innerHTML = '';
         noItemsMsg.classList.toggle('hidden', items.length > 0);
+        
+        if (!items.length) {
+            inventoryBody.innerHTML = '';
+            return;
+        }
 
         const byDate = {};
         items.forEach(item => {
@@ -1156,13 +1161,14 @@
 
         const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
         let idx = 0;
+        let html = '';
 
         dates.forEach(dk => {
-            const dateRow = document.createElement('tr');
-            dateRow.innerHTML = `<td colspan="6" style="padding:14px 14px 6px;border:none;">
-      <span class="date-stamp">${formatDate(dk)}</span>
-    </td>`;
-            inventoryBody.appendChild(dateRow);
+            html += `<tr>
+                <td colspan="6" style="padding:14px 14px 6px;border:none;">
+                    <span class="date-stamp">${formatDate(dk)}</span>
+                </td>
+            </tr>`;
 
             byDate[dk].forEach(item => {
                 idx++;
@@ -1170,20 +1176,24 @@
                 const name = it ? it.name : 'Unknown';
                 const member = Number.isInteger(item.memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[item.memberIndex] : null;
                 const issuedTo = member?.name || item.memberEmail || 'Team';
-                const tr = document.createElement('tr');
                 const t = new Date(item.time);
                 const ts = t.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-                tr.innerHTML = `
-        <td>${idx}</td>
-        <td>${esc(name)}</td>
-        <td>${esc(issuedTo)}</td>
-        <td><div class="qty-cell"><span class="qty-val">${item.qty}</span></div></td>
-        <td style="color:var(--text-dim)">${ts}</td>
-        <td><button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button> <button class="return-btn reassign-btn" data-uid="${item.uid}">Reassign</button></td>`;
-                inventoryBody.appendChild(tr);
+                html += `<tr>
+                    <td>${idx}</td>
+                    <td>${esc(name)}</td>
+                    <td>${esc(issuedTo)}</td>
+                    <td><div class="qty-cell"><span class="qty-val">${item.qty}</span></div></td>
+                    <td style="color:var(--text-dim)">${ts}</td>
+                    <td>
+                        <button class="return-btn" data-uid="${item.uid}" data-qty="${item.qty}">Return</button>
+                        <button class="return-btn reassign-btn" data-uid="${item.uid}">Reassign</button>
+                    </td>
+                </tr>`;
             });
         });
+        
+        inventoryBody.innerHTML = html;
     }
 
     inventoryBody.addEventListener('click', e => {
@@ -1617,6 +1627,13 @@
 
     // ── Event Bindings ─────────────────────────────────────
     addTeamBtn.addEventListener('click', addTeam);
+    teamListEl.addEventListener('click', e => {
+        const item = e.target.closest('.team-item');
+        if (item) {
+            const name = item.dataset.name;
+            if (name) selectTeam(name);
+        }
+    });
     teamNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTeam(); });
     teamSearchInput.addEventListener('input', renderTeams);
     renameTeamBtn.addEventListener('click', renameTeam);
