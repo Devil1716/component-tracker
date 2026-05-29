@@ -705,8 +705,16 @@
     }
     function updateStockHint() {
         const id = getSelectedId();
-        if (!id || !ITEM_MAP[id]) { stockHint.innerHTML = ''; return; }
+        if (!id || !ITEM_MAP[id]) {
+            stockHint.innerHTML = '';
+            quantityInput.removeAttribute('max');
+            return;
+        }
         const r = getRemaining(id), total = ITEM_MAP[id].stock;
+        quantityInput.max = r;
+        if (parseInt(quantityInput.value, 10) > r) {
+            quantityInput.value = Math.max(1, r);
+        }
         let cls = 'ok';
         let statusText = 'In Stock';
         if (r <= 0) {
@@ -1624,6 +1632,17 @@
     randomAssignBtn.addEventListener('click', () => setFairRandomMember(false));
     regenerateAssignBtn.addEventListener('click', () => setFairRandomMember(true));
     quantityInput.addEventListener('keydown', e => { if (e.key === 'Enter') logComponent(); });
+    quantityInput.addEventListener('input', () => {
+        const id = getSelectedId();
+        if (id && ITEM_MAP[id]) {
+            const r = getRemaining(id);
+            const val = parseInt(quantityInput.value, 10);
+            if (val > r) {
+                quantityInput.value = Math.max(1, r);
+                toast(`Adjusted quantity to maximum available stock (${r})`, 'info');
+            }
+        }
+    });
     exportBtn.addEventListener('click', () => exportModal.classList.remove('hidden'));
     closeExport.addEventListener('click', () => exportModal.classList.add('hidden'));
     exportModal.addEventListener('click', e => { if (e.target === exportModal) exportModal.classList.add('hidden'); });
