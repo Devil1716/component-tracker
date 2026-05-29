@@ -12,33 +12,41 @@
 }
 
 :root {
-  /* Amity Colors */
+  /* Core Colors */
   --amity-blue: #1B325D;
-  /* Deep Navy */
   --amity-gold: #FFCA08;
-  /* Supernova Gold */
 
-  --bg: #f3f6fa;
-  --surface: #ffffff;
-  --sidebar-bg: #1B325D;
-  --glass: rgba(255, 255, 255, 0.7);
-  --glass-b: rgba(27, 50, 93, 0.05);
-  --border: rgba(27, 50, 93, 0.12);
+  /* Premium Design Tokens */
+  --bg: #F5F7FA;
+  --surface: rgba(255, 255, 255, 0.85);
+  --sidebar-bg: linear-gradient(180deg, #102142 0%, #1B325D 100%);
+  --sidebar-active-bg: rgba(255, 255, 255, 0.12);
+  --glass: rgba(255, 255, 255, 0.45);
+  --glass-b: rgba(27, 50, 93, 0.04);
+  --border: rgba(27, 50, 93, 0.08);
+  --border-glow: rgba(255, 202, 8, 0.3);
 
-  --text: #1a202c;
-  --text-dim: #64748b;
-  --text-inv: #ffffff;
+  --text: #1E293B;
+  --text-dim: #64748B;
+  --text-inv: #FFFFFF;
 
   --accent: #FFCA08;
-  --danger: #ef4444;
-  --success: #10b981;
-  --warning: #f59e0b;
+  --accent-rgb: 255, 202, 8;
+  --danger: #EF4444;
+  --success: #10B981;
+  --warning: #F59E0B;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --sidebar-w: 260px;
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --transition: .2s ease;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --sidebar-w: 270px;
+  
+  /* Modern High-End Shadows */
+  --shadow-sm: 0 2px 8px -1px rgba(27, 50, 93, 0.04);
+  --shadow: 0 10px 30px -5px rgba(27, 50, 93, 0.06), 0 4px 12px -2px rgba(27, 50, 93, 0.03);
+  --shadow-lg: 0 20px 40px -10px rgba(27, 50, 93, 0.12), 0 8px 16px -4px rgba(27, 50, 93, 0.04);
+  --shadow-inset: inset 0 2px 4px 0 rgba(255, 255, 255, 0.1);
+  
+  --transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 body {
@@ -151,26 +159,52 @@ body.auth-locked .modal-overlay {
 /* ── Components ─────────────────────────────────────────── */
 .glass {
   background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.glass:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
 }
 
 .btn-primary,
-.btn-log {
-  background: var(--amity-blue);
+.btn-log,
+.btn-rename,
+.btn-login {
+  background: linear-gradient(135deg, var(--amity-blue) 0%, #254784 100%);
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(27, 50, 93, 0.15), var(--shadow-inset);
   transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .btn-primary:hover,
-.btn-log:hover {
-  background: #2c4a80;
-  transform: translateY(-1px);
+.btn-log:hover,
+.btn-rename:hover,
+.btn-login:hover {
+  background: linear-gradient(135deg, #254784 0%, #31589d 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(27, 50, 93, 0.22), var(--shadow-inset);
+}
+
+.btn-primary:active,
+.btn-log:active,
+.btn-rename:active,
+.btn-login:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(27, 50, 93, 0.15), var(--shadow-inset);
 }
 
 /* ── Sidebar ────────────────────────────────────────────── */
@@ -184,11 +218,12 @@ body.auth-locked .modal-overlay {
   color: var(--text-inv);
   transition: width var(--transition);
   z-index: 10;
+  box-shadow: 4px 0 24px rgba(16, 33, 66, 0.15);
 }
 
 .sidebar-header {
   padding: 24px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -280,28 +315,32 @@ body.auth-locked .modal-overlay {
 }
 
 .team-item {
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: .9rem;
+  font-size: .92rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.7);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   transition: all var(--transition);
+  border: 1px solid transparent;
 }
 
 .team-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
+  transform: translateX(2px);
 }
 
 .team-item.active {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--sidebar-active-bg);
   color: #fff;
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--amity-gold);
+  border-left: 3px solid var(--amity-gold);
+  border-color: rgba(255, 255, 255, 0.08) rgba(255, 255, 255, 0.08) rgba(255, 255, 255, 0.08) var(--amity-gold);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .team-list-copy {
@@ -320,7 +359,7 @@ body.auth-locked .modal-overlay {
 
 .team-list-copy small,
 .team-empty {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.45);
   font-size: .72rem;
 }
 
@@ -333,13 +372,16 @@ body.auth-locked .modal-overlay {
   font-weight: 700;
   font-size: .75rem;
   color: rgba(255, 255, 255, 0.6);
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.25);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .team-item.active .team-id {
   color: var(--amity-gold);
+  background: rgba(255, 202, 8, 0.15);
+  border-color: rgba(255, 202, 8, 0.25);
 }
 
 /* Sidebar Buttons */
@@ -349,11 +391,11 @@ body.auth-locked .modal-overlay {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
-  font-size: .9rem;
+  font-size: .92rem;
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition);
@@ -362,13 +404,14 @@ body.auth-locked .modal-overlay {
 
 .btn-stock {
   margin: 0 0 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .btn-stock:hover,
 .sidebar-footer button:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
+  padding-left: 20px;
 }
 
 .sidebar-section {
@@ -1244,4 +1287,77 @@ tr:hover {
 
 .hidden {
   display: none !important;
+}
+
+/* Pulse animation for Cloud Sync status indicator */
+.sync-status {
+  position: relative;
+  padding-left: 20px;
+}
+
+.sync-status::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background var(--transition);
+}
+
+.sync-status.success::before {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+  animation: pulseGreen 2s infinite ease-in-out;
+}
+
+.sync-status.danger::before {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+  animation: pulseRed 2s infinite ease-in-out;
+}
+
+@keyframes pulseGreen {
+  0% { transform: translateY(-50%) scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70% { transform: translateY(-50%) scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { transform: translateY(-50%) scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+@keyframes pulseRed {
+  0% { transform: translateY(-50%) scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  70% { transform: translateY(-50%) scale(1); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { transform: translateY(-50%) scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Modern Scale-up entrance for Modal Dialogs */
+.modal-overlay {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.modal {
+  transform: scale(0.95) translateY(10px);
+  opacity: 0;
+  animation: scaleUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(4px); }
+}
+
+@keyframes scaleUp {
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Row Fade-in for inventory tables */
+tbody tr {
+  animation: rowSlideIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes rowSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
