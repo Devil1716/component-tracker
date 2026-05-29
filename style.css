@@ -11,6 +11,55 @@
   box-sizing: border-box;
 }
 
+/* Custom rounded premium scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(27, 50, 93, 0.15);
+  border-radius: 99px;
+  border: 2px solid var(--bg);
+  transition: background var(--transition);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(27, 50, 93, 0.3);
+}
+
+#sidebar ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+#sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(0, 0, 0, 0.15);
+}
+
+#sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Focus ring styling for inputs */
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--amity-blue) !important;
+  box-shadow: 0 0 0 4px rgba(27, 50, 93, 0.12) !important;
+}
+
+/* Sidebar team-add inputs and searches glow gold */
+.team-add input:focus,
+.team-search input:focus {
+  border-color: var(--amity-gold) !important;
+  box-shadow: 0 0 0 4px rgba(255, 202, 8, 0.2) !important;
+}
+
 :root {
   /* Core Colors */
   --amity-blue: #1B325D;
