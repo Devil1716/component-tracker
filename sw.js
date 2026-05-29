@@ -1,9 +1,10 @@
-const CACHE_NAME = 'component-tracker-v7';
+const CACHE_NAME = 'component-tracker-v8';
 const ASSETS = [
     './',
     './index.html',
     './style.css',
     './app.js',
+    './exporter.js',
     './manifest.webmanifest',
     './assets/icon.svg'
 ];
