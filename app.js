@@ -284,6 +284,7 @@
     let firebaseSaveTimer = null;
     let firebasePollTimer = null;
     let detailsSaveInProgress = false;
+    let remoteSavePending = false; // Tracks if a remote write is queued or in-flight
 
     // ── Date Format ────────────────────────────────────────
     function toDateKey(d) {
@@ -367,16 +368,39 @@
     function queueRemoteSave() {
         if (!firebaseReady || !firebaseAuthToken) return;
         clearTimeout(firebaseSaveTimer);
-        firebaseSaveTimer = setTimeout(() => {
-            putRemoteData(data).catch(err => {
+        remoteSavePending = true; // Mark that a remote save is now pending/in-flight
+        firebaseSaveTimer = setTimeout(async () => {
+            try {
+                await putRemoteData(data);
+                remoteSavePending = false; // Successfully saved
+                setSyncStatus('Saved to cloud.', 'success');
+            } catch (err) {
+                remoteSavePending = false; // Done attempting
                 setSyncStatus('Cloud sync failed. Local copy saved.', 'danger');
                 console.error('Firebase save failed', err);
-            });
+            }
         }, 350);
     }
 
     function detailsEditorHasFocus() {
         return Boolean(detailsEditor && !detailsEditor.classList.contains('hidden') && detailsEditor.contains(document.activeElement));
+    }
+
+    function detailsEditorIsOpen() {
+        return Boolean(detailsEditor && !detailsEditor.classList.contains('hidden'));
+    }
+
+    function isUserEditing() {
+        // If the details editor is open/visible, they are actively editing details
+        if (detailsEditorIsOpen()) {
+            return true;
+        }
+        // If any input, select or textarea element has focus, we are in an editing/input context
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA')) {
+            return true;
+        }
+        return false;
     }
 
     function renderAll() {
@@ -386,7 +410,7 @@
             emptyState.classList.remove('hidden');
         }
         renderTeams();
-        if (activeTeam) selectTeam(activeTeam, { keepInputs: true, preserveDetailsInputs: detailsEditorHasFocus() });
+        if (activeTeam) selectTeam(activeTeam, { keepInputs: true, preserveDetailsInputs: detailsEditorHasFocus() || detailsEditorIsOpen() });
         populateDataList();
     }
 
@@ -492,9 +516,15 @@
 
             clearInterval(firebasePollTimer);
             firebasePollTimer = setInterval(async () => {
+                // Skip polling / applying changes if we have a local write pending or if the user is editing details
+                if (remoteSavePending || isUserEditing()) {
+                    return;
+                }
                 try {
                     const nextRaw = await getRemoteData();
                     if (!nextRaw) return;
+                    // Double check in case the user started editing during the network request
+                    if (remoteSavePending || isUserEditing()) return;
                     const next = normalizeData(nextRaw);
                     if (JSON.stringify(next) === JSON.stringify(data)) return;
                     data = next;
@@ -1093,7 +1123,6 @@
 
         dates.forEach(dk => {
             const dateRow = document.createElement('tr');
-            // Date row without emoji
             dateRow.innerHTML = `<td colspan="6" style="padding:14px 14px 6px;border:none;">
       <span class="date-stamp">${formatDate(dk)}</span>
     </td>`;
@@ -1129,123 +1158,31 @@
 
     componentSelect.addEventListener('input', updateStockHint);
 
-    // ── Export CSV ─────────────────────────────────────────
-    const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-
-    function downloadCSV(filename, headers, rows) {
-        const csv = [
-            headers.map(csvCell).join(','),
-            ...rows.map(row => headers.map(header => csvCell(row[header])).join(','))
-        ].join('\n') + '\n';
-        const b = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const u = URL.createObjectURL(b);
-        const a = document.createElement('a');
-        a.href = u;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(u);
-    }
-
+    // ── Export CSV (Delegated to exporter.js) ──────────────
     function allocationRows(includeReturned = false) {
-        const pending = [];
-        data.order.forEach(team => {
-            const meta = normalizeMeta(data.meta[team] || {});
-            const members = normalizeMembers(meta.members);
-            (data.teams[team] || []).forEach(item => {
-                const catalog = ITEM_MAP[item.itemId];
-                const member = Number.isInteger(item.memberIndex) ? members[item.memberIndex] : null;
-                pending.push({
-                    Component: catalog ? catalog.name : 'Unknown component',
-                    Team: team,
-                    'Team ID': meta.id,
-                    'Project Name': meta.projectName,
-                    Member: member?.name || '',
-                    Email: item.memberEmail || member?.email || '',
-                    Quantity: item.qty,
-                    'Assigned Date': item.date || '',
-                    Status: 'Pending',
-                    Notes: item.memberEmail ? `Issued to ${member?.name || item.memberEmail}` : 'Issued to team'
-                });
-            });
-        });
-        if (!includeReturned) return pending;
-        const returned = data.history
-            .filter(item => item.type === 'return')
-            .map(item => {
-                const meta = normalizeMeta(data.meta[item.team] || {});
-                const catalog = ITEM_MAP[item.itemId];
-                return {
-                    Component: catalog ? catalog.name : 'Unknown component',
-                    Team: item.team,
-                    'Team ID': meta.id,
-                    'Project Name': meta.projectName,
-                    Member: '',
-                    Email: '',
-                    Quantity: item.qty,
-                    'Assigned Date': item.date || '',
-                    Status: 'Returned',
-                    Notes: 'Returned to inventory'
-                };
-            });
-        return pending.concat(returned);
+        return window.Exporter.buildAllocationRows(data, ITEM_MAP, normalizeMeta, normalizeMembers, includeReturned);
     }
 
     function sortRows(rows, sortKey) {
-        const keyMap = {
-            team: 'Team',
-            component: 'Component',
-            quantity: 'Quantity',
-            status: 'Status',
-            date: 'Assigned Date'
-        };
-        const key = keyMap[sortKey] || 'Team';
-        return rows.sort((a, b) => {
-            if (key === 'Quantity') return Number(b[key] || 0) - Number(a[key] || 0);
-            const aValue = a[key] ?? a.Date ?? '';
-            const bValue = b[key] ?? b.Date ?? '';
-            if (key === 'Assigned Date') return String(bValue).localeCompare(String(aValue));
-            return String(aValue).localeCompare(String(bValue));
-        });
+        return window.Exporter.sortRows(rows, sortKey);
     }
 
     function buildExportRows(mode, sortKey) {
-        if (mode === 'inventory') {
-            const rows = CATALOG.flatMap(cat => cat.items.map(item => ({
-                Category: cat.cat,
-                Component: item.name,
-                'Total Stock': item.stock,
-                Allocated: getTotalUsed(item.id),
-                Available: getRemaining(item.id),
-                Status: getRemaining(item.id) <= 0 ? 'Out of stock' : 'Available'
-            })));
-            return { filename: 'full_inventory.csv', headers: ['Category', 'Component', 'Total Stock', 'Allocated', 'Available', 'Status'], rows };
-        }
-        if (mode === 'team') {
-            const rows = allocationRows(false).map(row => ({
-                'Team ID': row['Team ID'],
-                Team: row.Team,
-                'Project Name': row['Project Name'],
-                Component: row.Component,
-                Member: row.Member,
-                Email: row.Email,
-                Quantity: row.Quantity,
-                Date: row['Assigned Date'],
-                Status: row.Status
-            }));
-            return { filename: 'team_wise_components.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Date', 'Status'], rows: sortRows(rows, sortKey) };
-        }
-        if (mode === 'pending') {
-            const rows = allocationRows(false);
-            return { filename: 'pending_components_report.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'], rows: sortRows(rows, sortKey) };
-        }
-        const rows = allocationRows(true);
-        return { filename: 'allocation_report.csv', headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'], rows: sortRows(rows, sortKey) };
+        return window.Exporter.buildExportRows(mode, sortKey, {
+            data,
+            CATALOG,
+            ITEM_MAP,
+            normalizeMeta,
+            normalizeMembers,
+            getTotalUsed,
+            getRemaining
+        });
     }
 
     function exportCSV(mode = exportMode?.value || 'inventory', sortKey = exportSort?.value || 'team') {
         const { filename, headers, rows } = buildExportRows(mode, sortKey);
         if (!rows.length) return toast('Nothing to export', 'info');
-        downloadCSV(filename, headers, rows);
+        window.Exporter.downloadCSV(filename, headers, rows);
         toast('CSV exported');
     }
 
