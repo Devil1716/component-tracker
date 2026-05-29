@@ -708,9 +708,27 @@
         if (!id || !ITEM_MAP[id]) { stockHint.innerHTML = ''; return; }
         const r = getRemaining(id), total = ITEM_MAP[id].stock;
         let cls = 'ok';
-        if (r <= 0) cls = 'out';
-        else if (r <= total * 0.2) cls = 'low';
-        stockHint.innerHTML = `Stock: <span class="${cls}">${r}</span> / ${total} remaining`;
+        let statusText = 'In Stock';
+        if (r <= 0) {
+            cls = 'out';
+            statusText = 'Out of Stock';
+        } else if (r <= total * 0.2) {
+            cls = 'low';
+            statusText = 'Low Stock';
+        }
+        
+        const ratio = total > 0 ? Math.max(0, Math.min(100, (r / total) * 100)) : 0;
+        stockHint.innerHTML = `
+            <div class="stock-progress-container">
+                <div class="stock-progress-label">
+                    <span>Stock Level: <strong style="color:var(--text); font-weight:700">${statusText}</strong></span>
+                    <span class="stock-badge ${cls}">${r} / ${total} available</span>
+                </div>
+                <div class="stock-progress-bar">
+                    <div class="stock-progress-fill ${cls}" style="width: ${ratio}%"></div>
+                </div>
+            </div>
+        `;
     }
 
     // ── Render sidebar ─────────────────────────────────────
@@ -718,13 +736,23 @@
         if (!activeTeam) return;
         const meta = data.meta[activeTeam] || {};
         const members = normalizeMembers(meta.members);
+        const items = data.teams[activeTeam] || [];
+        const memberComponentCounts = {};
+        items.forEach(item => {
+            if (Number.isInteger(item.memberIndex)) {
+                memberComponentCounts[item.memberIndex] = (memberComponentCounts[item.memberIndex] || 0) + item.qty;
+            }
+        });
+
         membersGrid.innerHTML = members.map((member, index) => {
             const branchOptions = [''].concat(BRANCHES).map(branch => {
                 const label = branch || 'Select branch';
                 return `<option value="${esc(branch)}"${member.branch === branch ? ' selected' : ''}>${label}</option>`;
             }).join('');
+            const count = memberComponentCounts[index] || 0;
+            const badge = count > 0 ? `<span class="member-checkout-badge">${count} item${count > 1 ? 's' : ''} held</span>` : '';
             return `<div class="member-card" data-index="${index}">
-                <div class="member-label">Member ${index + 1}</div>
+                <div class="member-label">Member ${index + 1}${badge}</div>
                 <input type="text" data-field="name" value="${esc(member.name)}" placeholder="Name">
                 <input type="text" data-field="sen" value="${esc(member.sen)}" placeholder="SEN">
                 <input type="text" inputmode="email" data-field="email" value="${esc(member.email)}" placeholder="College email ID">
@@ -1221,14 +1249,59 @@
     // ── Modals ─────────────────────────────────────────────
     function showSummary() {
         if (!data.order.length) return toast('No teams', 'info');
-        let total = 0, html = '';
+        
+        // 1. Pre-calculate metrics
+        let totalCirculation = 0;
+        data.order.forEach(team => {
+            const items = data.teams[team] || [];
+            items.forEach(c => {
+                totalCirculation += c.qty;
+            });
+        });
+        
+        let inStockItemsCount = 0;
+        let totalCatalogItems = 0;
+        CATALOG.forEach(cat => {
+            cat.items.forEach(it => {
+                totalCatalogItems++;
+                if (getRemaining(it.id) > 0) {
+                    inStockItemsCount++;
+                }
+            });
+        });
+        const healthPercent = totalCatalogItems > 0 ? Math.round((inStockItemsCount / totalCatalogItems) * 100) : 100;
+        const activeTeams = data.order.length;
+        const healthCls = healthPercent > 50 ? 'emerald' : 'gold';
+        
+        // 2. Build Dashboard Grid
+        let html = `
+            <div class="summary-dashboard">
+                <div class="summary-stat-card">
+                    <div class="summary-stat-label">Active Teams</div>
+                    <div class="summary-stat-value">${activeTeams}</div>
+                    <div class="summary-stat-desc">Registered lab teams</div>
+                </div>
+                <div class="summary-stat-card gold">
+                    <div class="summary-stat-label">In Circulation</div>
+                    <div class="summary-stat-value">${totalCirculation}</div>
+                    <div class="summary-stat-desc">Total checked-out items</div>
+                </div>
+                <div class="summary-stat-card ${healthCls}">
+                    <div class="summary-stat-label">Catalog Availability</div>
+                    <div class="summary-stat-value">${healthPercent}%</div>
+                    <div class="summary-stat-desc">${inStockItemsCount} of ${totalCatalogItems} items in stock</div>
+                </div>
+            </div>
+        `;
+        
+        // 3. Build Team Cards
         data.order.forEach(team => {
             const meta = data.meta[team] || { id: '' };
             const items = data.teams[team] || [];
             if (!items.length) {
                 html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)}</h4>
         <p class="summary-project">${esc(meta.projectName || 'Project name pending')}</p>
-        <p style="color:var(--text-dim);font-size:.85rem">No components.</p></div>`;
+        <p style="color:var(--text-dim);font-size:.85rem;margin: 10px 0 0 0">No components checked out.</p></div>`;
                 return;
             }
             const agg = {};
@@ -1242,12 +1315,18 @@
                 tq += qty;
                 rows += `<tr><td>${esc(it ? it.name : '?')}</td><td style="font-weight:600">${qty}</td></tr>`;
             });
-            total += tq;
-            html += `<div class="summary-team"><h4>[${esc(meta.id)}] ${esc(team)} - <span style="color:var(--accent3)">${tq} items</span></h4>
-      <p class="summary-project">${esc(meta.projectName || 'Project name pending')}</p>
-      <table><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            
+            html += `<div class="summary-team">
+                <h4 style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>[${esc(meta.id)}] ${esc(team)}</span>
+                    <span class="member-checkout-badge">${tq} items</span>
+                </h4>
+                <p class="summary-project">${esc(meta.projectName || 'Project name pending')}</p>
+                <table style="margin-top: 10px;"><thead><tr><th>Component</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table>
+            </div>`;
         });
-        html += `<div class="summary-total">Total In Circulation: <span>${total}</span></div>`;
+        
+        html += `<div class="summary-total">Total Checked Out: <span>${totalCirculation}</span></div>`;
         summaryContent.innerHTML = html;
         summaryModal.classList.remove('hidden');
     }
