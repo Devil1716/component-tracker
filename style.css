@@ -997,24 +997,56 @@ tr:hover {
   text-transform: uppercase;
 }
 
-.stock-hint span,
-.sremain {
+.stock-hint span {
   font-weight: 800;
 }
 
-.stock-hint .ok,
-.sremain.ok {
+.sremain {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+}
+
+.stock-hint .ok {
   color: var(--success);
 }
 
-.stock-hint .low,
-.sremain.low {
+.sremain.ok {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+.stock-hint .low {
   color: var(--warning);
 }
 
-.stock-hint .out,
-.sremain.out {
+.sremain.low {
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  animation: pulseAmber 2.5s infinite ease-in-out;
+}
+
+.stock-hint .out {
   color: var(--danger);
+}
+
+.sremain.out {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+@keyframes pulseAmber {
+  0% { opacity: 0.85; }
+  50% { opacity: 1; transform: scale(1.03); }
+  100% { opacity: 0.85; }
 }
 
 .no-items {
