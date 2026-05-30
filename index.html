@@ -36,6 +36,18 @@
         </form>
     </section>
 
+    <!-- ───── Mobile Top Bar ───── -->
+    <header class="mobile-topbar">
+        <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Open Menu">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
+            </svg>
+        </button>
+        <div class="mobile-logo">Amity Component Tracker</div>
+    </header>
+
+    <div id="sidebarScrim" class="sidebar-scrim"></div>
+
     <!-- ───── Sidebar ───── -->
     <aside id="sidebar">
         <div class="sidebar-header">
@@ -43,11 +55,22 @@
                 <h1>Amity</h1>
                 <p class="subtitle">Component Log</p>
             </div>
-            <button id="sidebarToggle" class="sidebar-toggle" title="Toggle Sidebar">
-                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
-                </svg>
-            </button>
+            <div class="sidebar-header-actions">
+                <button id="themeToggle" class="theme-toggle" title="Toggle Theme" aria-label="Toggle Theme">
+                    <svg class="sun-icon hidden" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41m12.72-12.72l-1.41 1.41"></path>
+                    </svg>
+                    <svg class="moon-icon" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                    </svg>
+                </button>
+                <button id="sidebarToggle" class="sidebar-toggle" title="Toggle Sidebar">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <div class="team-add">

@@ -11,7 +11,7 @@ const MAX_SEND_ATTEMPTS = Number(process.env.SMTP_SEND_ATTEMPTS || 3);
 
 function setCors(req, res) {
   const origin = req.get('origin');
-  if (origin === ALLOWED_ORIGIN) {
+  if (origin === ALLOWED_ORIGIN || (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))) {
     res.set('Access-Control-Allow-Origin', origin);
   }
   res.set('Vary', 'Origin');

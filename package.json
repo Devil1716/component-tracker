@@ -1,0 +1,15 @@
+{
+  "name": "amity-component-tracker",
+  "version": "1.0.0",
+  "description": "A lightweight component checkout tracker for lab teams.",
+  "scripts": {
+    "dev": "npx http-server -p 8000"
+  },
+  "keywords": [
+    "tracker",
+    "firebase",
+    "pwa"
+  ],
+  "author": "",
+  "license": "ISC"
+}

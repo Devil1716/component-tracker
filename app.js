@@ -163,13 +163,26 @@
     const ADMIN_EMAIL = String(RUNTIME_CONFIG.auth?.adminEmail || RUNTIME_CONFIG.auth?.username || '').trim().toLowerCase();
     const ADMIN_USERNAME = String(RUNTIME_CONFIG.auth?.username || '').trim();
     const ADMIN_PASSWORD_HASH = String(RUNTIME_CONFIG.auth?.passwordHash || '').trim();
-    const APP_ENV = new URLSearchParams(location.search).get('env') === 'test' ? 'testing' : (RUNTIME_CONFIG.environment || 'production');
+    
+    const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '[::1]';
+    const urlParams = new URLSearchParams(location.search);
+    const urlEnv = urlParams.get('env');
+    const APP_ENV = urlEnv === 'test' || urlEnv === 'testing'
+        ? 'testing'
+        : (urlEnv === 'production'
+            ? 'production'
+            : (isLocalhost ? 'testing' : (RUNTIME_CONFIG.environment || 'production')));
+            
+    const useEmulator = urlParams.get('emulator') === 'true' || urlParams.get('useEmulator') === 'true';
+
     const DATABASE_PATHS = RUNTIME_CONFIG.databasePaths || {
         production: 'componentTracker/production/state',
         testing: 'componentTracker/testing/state'
     };
     const FIREBASE_STATE_PATH = DATABASE_PATHS[APP_ENV] || DATABASE_PATHS.production;
-    const REMINDER_EMAIL_ENDPOINT = RUNTIME_CONFIG.email?.reminderEndpoint || '';
+    const REMINDER_EMAIL_ENDPOINT = useEmulator
+        ? `http://localhost:5001/${RUNTIME_CONFIG.firebase?.projectId || 'component-tracker-cd000'}/asia-south1/sendReminderEmails`
+        : (RUNTIME_CONFIG.email?.reminderEndpoint || '');
     const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9-]+\.)+[a-z]{2,63}$/i;
 
     const ITEM_MAP = {};
@@ -258,8 +271,25 @@
             }
             d.meta[name] = normalizeMeta(d.meta[name], generateId(d.dateCounter));
         });
+        sortOrder(d.order, d.meta);
         return d;
     }
+
+    function sortOrder(order, meta) {
+        if (!Array.isArray(order)) return;
+        order.sort((a, b) => {
+            const idA = String(meta?.[a]?.id || '').trim();
+            const idB = String(meta?.[b]?.id || '').trim();
+            return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    }
+
+    function sortTeamsByNumber() {
+        if (data && data.order && data.meta) {
+            sortOrder(data.order, data.meta);
+        }
+    }
+
     function load() {
         try {
             return normalizeData(JSON.parse(localStorage.getItem(KEY)) || emptyData());
@@ -458,6 +488,10 @@
     }
 
     function firebaseStateUrl() {
+        if (useEmulator) {
+            const projectId = RUNTIME_CONFIG.firebase?.projectId || 'component-tracker-cd000';
+            return `http://localhost:9000/${FIREBASE_STATE_PATH}.json?ns=${projectId}`;
+        }
         const base = String(RUNTIME_CONFIG.firebase?.databaseURL || '').replace(/\/$/, '');
         if (!base) throw new Error('Firebase database URL is not configured.');
         return `${base}/${FIREBASE_STATE_PATH}.json?auth=${encodeURIComponent(firebaseAuthToken)}`;
@@ -575,6 +609,7 @@
     const allocationBody = $('#allocationBody'), allocationEmpty = $('#allocationEmpty'), allocationExportBtn = $('#allocationExportBtn');
 
     const sidebar = $('#sidebar'), sidebarToggle = $('#sidebarToggle');
+    const mobileMenuBtn = $('#mobileMenuBtn'), sidebarScrim = $('#sidebarScrim');
 
     // ── Toast ──────────────────────────────────────────────
     let tc;
@@ -857,6 +892,7 @@
         if (!memberDetailsComplete(meta.members)) { finish(); return toast('Complete each entered member with name, SEN, branch, and email', 'danger'); }
         meta.detailsCollapsed = true;
         data.meta[activeTeam] = meta;
+        sortTeamsByNumber();
         save(data);
         renderTeams();
         populateIssueMemberSelect();
@@ -870,22 +906,60 @@
         if (!activeTeam) return;
         const oldName = activeTeam;
         const newName = teamRenameInput.value.trim();
-        if (!newName) return toast('Enter a team name', 'danger');
-        if (newName === oldName) return toast('Team name unchanged', 'info');
-        if (data.teams[newName]) return toast('Team already exists', 'danger');
+        const newNumber = teamNumberInput.value.trim();
+        const newProject = projectNameInput.value.trim();
 
-        data.teams[newName] = data.teams[oldName] || [];
-        data.meta[newName] = normalizeMeta(data.meta[oldName] || { id: '???', members: normalizeMembers() });
-        delete data.teams[oldName];
-        delete data.meta[oldName];
-        data.order = data.order.map(name => name === oldName ? newName : name);
-        data.history.forEach(item => {
-            if (item.team === oldName) item.team = newName;
-        });
-        activeTeam = newName;
+        if (!newName) return toast('Enter a team name', 'danger');
+        if (!newNumber) return toast('Enter a team number', 'danger');
+        if (!newProject) return toast('Enter a project name', 'danger');
+
+        // Check if team number is unique
+        if (!teamNumberAvailable(newNumber, oldName)) {
+            return toast('Team number already exists', 'danger');
+        }
+
+        // Check if new team name already exists
+        if (newName !== oldName && data.teams[newName]) {
+            return toast('Team name already exists', 'danger');
+        }
+
+        let targetName = oldName;
+        let changed = false;
+
+        // 1. Rename team if name changed
+        if (newName !== oldName) {
+            data.teams[newName] = data.teams[oldName] || [];
+            data.meta[newName] = data.meta[oldName] || { members: normalizeMembers() };
+            delete data.teams[oldName];
+            delete data.meta[oldName];
+            data.order = data.order.map(name => name === oldName ? newName : name);
+            data.history.forEach(item => {
+                if (item.team === oldName) item.team = newName;
+            });
+            targetName = newName;
+            changed = true;
+        }
+
+        // 2. Update team number and project name
+        const currentMeta = data.meta[targetName] || {};
+        if (currentMeta.id !== newNumber || currentMeta.projectName !== newProject || changed) {
+            data.meta[targetName] = normalizeMeta({
+                ...currentMeta,
+                id: newNumber,
+                projectName: newProject
+            });
+            changed = true;
+        }
+
+        if (!changed) {
+            return toast('No changes detected', 'info');
+        }
+
+        sortTeamsByNumber();
         save(data);
-        selectTeam(newName);
-        toast(`Renamed team to "${newName}"`);
+        activeTeam = targetName;
+        selectTeam(targetName);
+        toast('Team details updated');
     }
 
     function renderTeams() {
@@ -950,6 +1024,7 @@
             componentSelect.value = '';
             stockHint.innerHTML = '';
         }
+        closeMobileDrawer();
     }
 
     // ── Add / delete team ──────────────────────────────────
@@ -963,6 +1038,7 @@
         data.dateCounter++;
         data.meta[name] = normalizeMeta({ id: generateId(data.dateCounter), members: normalizeMembers(), projectName: '', detailsCollapsed: false });
 
+        sortTeamsByNumber();
         save(data);
         teamNameInput.value = '';
         renderTeams();
@@ -1689,7 +1765,79 @@
     });
     allocationExportBtn.addEventListener('click', () => exportCSV('allocation', allocationSort.value));
 
+    function initLocalSandboxBadge() {
+        if (!isLocalhost) return;
+        const badge = document.createElement('div');
+        badge.className = 'local-sandbox-badge';
+        const envName = APP_ENV === 'testing' ? 'Testing' : 'Production';
+        badge.innerHTML = `Local Sandbox (${envName}${useEmulator ? ' + Emulator' : ''})`;
+        badge.title = `Running locally. Using the ${APP_ENV} database vessel. Click to copy localhost url.`;
+        badge.style.cursor = 'pointer';
+        badge.addEventListener('click', () => {
+            navigator.clipboard.writeText(location.href);
+            toast('Localhost URL copied to clipboard!', 'success');
+        });
+        document.body.appendChild(badge);
+    }
+
+    function initThemeSwitcher() {
+        const themeToggle = document.getElementById('themeToggle');
+        if (!themeToggle) return;
+
+        const sunIcon = themeToggle.querySelector('.sun-icon');
+        const moonIcon = themeToggle.querySelector('.moon-icon');
+
+        const savedTheme = localStorage.getItem('theme');
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');
+
+        setTheme(initialTheme);
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setTheme(nextTheme);
+            localStorage.setItem('theme', nextTheme);
+            toast(`Switched to ${nextTheme} mode`, 'info');
+        });
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            if (theme === 'dark') {
+                sunIcon.classList.remove('hidden');
+                moonIcon.classList.add('hidden');
+            } else {
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+            }
+        }
+    }
+
+    function closeMobileDrawer() {
+        if (window.innerWidth <= 768) {
+            sidebar.classList.remove('active');
+            sidebarScrim.classList.remove('active');
+        }
+    }
+
+    function initMobileDrawer() {
+        if (mobileMenuBtn && sidebarScrim) {
+            mobileMenuBtn.addEventListener('click', () => {
+                sidebar.classList.toggle('active');
+                sidebarScrim.classList.toggle('active');
+            });
+
+            sidebarScrim.addEventListener('click', () => {
+                sidebar.classList.remove('active');
+                sidebarScrim.classList.remove('active');
+            });
+        }
+    }
+
     // ── Init ───────────────────────────────────────────────
     initToast();
+    initLocalSandboxBadge();
+    initThemeSwitcher();
+    initMobileDrawer();
     initAuth();
 })();
