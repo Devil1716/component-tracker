@@ -183,7 +183,7 @@
     const REMINDER_EMAIL_ENDPOINT = useEmulator
         ? `http://localhost:5001/${RUNTIME_CONFIG.firebase?.projectId || 'component-tracker-cd000'}/asia-south1/sendReminderEmails`
         : (RUNTIME_CONFIG.email?.reminderEndpoint || '');
-    const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9-]+\.)+[a-z]{2,63}$/i;
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     const ITEM_MAP = {};
     CATALOG.forEach(c => c.items.forEach(it => { ITEM_MAP[it.id] = it; }));
