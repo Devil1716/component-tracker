@@ -1134,8 +1134,14 @@
         const memberIndex = issueMemberSelect.value === '' ? null : Number(issueMemberSelect.value);
         const member = Number.isInteger(memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[memberIndex] : null;
         if (memberIndex !== null) {
-            if (!member || !member.name || !isValidEmail(member.email)) {
-                return toast('Select a member with a valid email', 'danger');
+            if (!member) {
+                return toast('Selected member not found', 'danger');
+            }
+            if (!member.name) {
+                return toast('The selected member must have a name. Please save team details first.', 'danger');
+            }
+            if (!isValidEmail(member.email)) {
+                return toast('The selected member must have a valid email. Please save team details first.', 'danger');
             }
         }
 
