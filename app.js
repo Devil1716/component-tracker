@@ -191,7 +191,7 @@
     // ── Storage helpers ────────────────────────────────────
     const KEY = 'comp_tracker_v8';
     const MIGRATION_KEY = `${KEY}_firebase_migrated_${APP_ENV}_v1`;
-    function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, updatedAt: '' }; }
+    function emptyData() { return { teams: {}, order: [], meta: {}, history: [], dateCounter: 0, schemaVersion: 2, semesters: ['Winter Semester'], activeSemester: 'Winter Semester', updatedAt: '' }; }
     function blankMember() { return { name: '', sen: '', branch: '', email: '' }; }
     function cleanString(value, max = 200) { return String(value ?? '').trim().slice(0, max); }
     function normalizeEmail(value) { return cleanString(value, 254).toLowerCase(); }
@@ -252,7 +252,8 @@
             id: cleanString(meta.id || fallbackId, 40),
             projectName: cleanString(meta.projectName, 160),
             detailsCollapsed: meta.detailsCollapsed === true,
-            members: normalizeMembers(meta.members)
+            members: normalizeMembers(meta.members),
+            semester: cleanString(meta.semester || (typeof data !== 'undefined' && data ? data.activeSemester : 'Winter Semester'), 80)
         };
     }
     function normalizeData(raw) {
@@ -263,6 +264,10 @@
         d.history = Array.isArray(d.history) ? d.history.map(normalizeHistoryEvent).filter(Boolean) : [];
         d.dateCounter = Number.isFinite(d.dateCounter) ? d.dateCounter : 0;
         d.schemaVersion = 2;
+        
+        d.semesters = ['Winter Semester'];
+        d.activeSemester = 'Winter Semester';
+
         d.order.forEach(name => {
             d.teams[name] = Array.isArray(d.teams[name]) ? d.teams[name].map(normalizeCheckout).filter(Boolean) : [];
             if (!d.meta[name]) {
@@ -299,7 +304,13 @@
     function save(d, options = {}) {
         d.updatedAt = new Date().toISOString();
         localStorage.setItem(KEY, JSON.stringify(d));
-        if (!options.remote && firebaseReady) queueRemoteSave();
+        if (!options.remote) {
+            if (firebaseReady) {
+                queueRemoteSave();
+            } else {
+                localStorage.setItem(KEY + '_needs_sync', 'true');
+            }
+        }
     }
 
     function generateId(num) {
@@ -434,6 +445,7 @@
     }
 
     function renderAll() {
+        populateSemesterSelect();
         if (activeTeam && !data.teams[activeTeam]) {
             activeTeam = null;
             teamView.classList.add('hidden');
@@ -532,18 +544,22 @@
             const remoteData = await getRemoteData();
             const localData = load();
             const alreadyMigrated = localStorage.getItem(MIGRATION_KEY) === 'true';
+            const localNeedsSync = localStorage.getItem(KEY + '_needs_sync') === 'true';
 
             if (!remoteData && hasLocalContent(localData)) {
                 data = normalizeData(localData);
                 await putRemoteData(data);
                 localStorage.setItem(MIGRATION_KEY, 'true');
-            } else if (remoteData && hasLocalContent(localData) && !alreadyMigrated) {
+                localStorage.removeItem(KEY + '_needs_sync');
+            } else if (remoteData && (localNeedsSync || !alreadyMigrated)) {
                 data = mergeData(remoteData, localData);
                 await putRemoteData(data);
                 localStorage.setItem(MIGRATION_KEY, 'true');
+                localStorage.removeItem(KEY + '_needs_sync');
             } else if (remoteData) {
                 data = normalizeData(remoteData);
                 save(data, { remote: true });
+                localStorage.removeItem(KEY + '_needs_sync');
             }
 
             firebaseReady = true;
@@ -583,7 +599,7 @@
     const loginView = $('#loginView'), loginForm = $('#loginForm');
     const loginUsername = $('#loginUsername'), loginPassword = $('#loginPassword'), loginError = $('#loginError');
     const teamNameInput = $('#teamNameInput'), addTeamBtn = $('#addTeamBtn'), teamListEl = $('#teamList');
-    const teamSearchInput = $('#teamSearchInput');
+    const teamSearchInput = $('#teamSearchInput'), semesterSelect = $('#semesterSelect'), addSemesterBtn = $('#addSemesterBtn');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
     const teamRenameInput = $('#teamRenameInput'), teamNumberInput = $('#teamNumberInput'), projectNameInput = $('#projectNameInput');
@@ -644,6 +660,7 @@
         document.body.classList.remove('auth-locked');
         loginView.classList.add('hidden');
         setSyncStatus(`Connecting ${APP_ENV} cloud sync...`, 'info');
+        populateSemesterSelect();
         renderTeams();
         populateDataList();
         connectFirebase();
@@ -701,6 +718,13 @@
         componentList.innerHTML = html;
     }
 
+    function populateSemesterSelect() {
+        if (!semesterSelect) return;
+        semesterSelect.innerHTML = data.semesters.map(s => 
+            `<option value="${esc(s)}"${s === data.activeSemester ? ' selected' : ''}>${esc(s)}</option>`
+        ).join('');
+    }
+
     function populateIssueMemberSelect() {
         if (!issueMemberSelect) return;
         let html = '<option value="">Issue to member...</option>';
@@ -728,6 +752,8 @@
     function getTotalUsed(itemId) {
         let used = 0;
         data.order.forEach(t => {
+            const meta = data.meta[t];
+            if (meta && meta.semester !== data.activeSemester) return;
             (data.teams[t] || []).forEach(c => { if (c.itemId === itemId) used += c.qty; });
         });
         return used;
@@ -969,6 +995,7 @@
         
         data.order.forEach(name => {
             const meta = data.meta[name] || { id: '???', projectName: '' };
+            if (meta.semester !== data.activeSemester) return;
             const matches = !query
                 || name.toLowerCase().includes(query)
                 || cleanString(meta.projectName, 160).toLowerCase().includes(query)
@@ -1106,7 +1133,11 @@
         if (qty > remaining) return toast(`Only ${remaining} left`, 'danger');
         const memberIndex = issueMemberSelect.value === '' ? null : Number(issueMemberSelect.value);
         const member = Number.isInteger(memberIndex) ? normalizeMembers(data.meta[activeTeam]?.members)[memberIndex] : null;
-        if (!member || !member.name || !isValidEmail(member.email)) return toast('Select a member with a valid email', 'danger');
+        if (memberIndex !== null) {
+            if (!member || !member.name || !isValidEmail(member.email)) {
+                return toast('Select a member with a valid email', 'danger');
+            }
+        }
 
         const now = new Date();
         const dateKey = toDateKey(now);
@@ -1115,19 +1146,20 @@
         const existing = (data.teams[activeTeam] || []).find(
             c => c.itemId === itemId && c.memberIndex === memberIndex
         );
+        const memberEmail = member ? member.email : '';
         if (existing) {
             existing.qty += qty;
             existing.time = now.toISOString();
             existing.memberIndex = memberIndex;
-            existing.memberEmail = member.email;
+            existing.memberEmail = memberEmail;
         } else {
             data.teams[activeTeam].push({
-                uid, itemId, qty, date: dateKey, time: now.toISOString(), memberIndex, memberEmail: member.email
+                uid, itemId, qty, date: dateKey, time: now.toISOString(), memberIndex, memberEmail
             });
         }
 
         data.history.push({
-            type: 'take', uid, itemId, qty, date: dateKey, time: now.toISOString(), team: activeTeam, memberIndex, memberEmail: member.email
+            type: 'take', uid, itemId, qty, date: dateKey, time: now.toISOString(), team: activeTeam, memberIndex, memberEmail
         });
 
         save(data);
@@ -1703,6 +1735,46 @@
 
     // ── Event Bindings ─────────────────────────────────────
     addTeamBtn.addEventListener('click', addTeam);
+    if (semesterSelect) {
+        semesterSelect.addEventListener('change', e => {
+            data.activeSemester = e.target.value;
+            save(data);
+            if (activeTeam) {
+                const meta = data.meta[activeTeam];
+                if (meta && meta.semester !== data.activeSemester) {
+                    activeTeam = null;
+                    teamView.classList.add('hidden');
+                    emptyState.classList.remove('hidden');
+                }
+            }
+            renderTeams();
+            if (activeTeam) {
+                renderMembers();
+                renderInventory();
+                populateIssueMemberSelect();
+            }
+            populateDataList();
+        });
+    }
+    if (addSemesterBtn) {
+        addSemesterBtn.addEventListener('click', () => {
+            const name = prompt('Enter new semester name (e.g. Winter Semester 2026):');
+            if (!name) return;
+            const cleanName = cleanString(name, 80);
+            if (!cleanName) return toast('Invalid semester name', 'danger');
+            if (data.semesters.includes(cleanName)) return toast('Semester already exists', 'danger');
+            data.semesters.push(cleanName);
+            data.activeSemester = cleanName;
+            save(data);
+            populateSemesterSelect();
+            activeTeam = null;
+            teamView.classList.add('hidden');
+            emptyState.classList.remove('hidden');
+            renderTeams();
+            populateDataList();
+            toast(`Semester "${cleanName}" created`);
+        });
+    }
     teamListEl.addEventListener('click', e => {
         const item = e.target.closest('.team-item');
         if (item) {

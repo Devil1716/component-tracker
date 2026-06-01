@@ -93,6 +93,7 @@
         
         data.order.forEach(team => {
             const meta = normalizeMeta(data.meta[team] || {});
+            if (data.activeSemester && meta.semester !== data.activeSemester) return;
             const members = normalizeMembers(meta.members);
             
             (data.teams[team] || []).forEach(item => {
@@ -117,7 +118,11 @@
         if (!includeReturned) return pending;
         
         const returned = data.history
-            .filter(item => item.type === 'return')
+            .filter(item => {
+                if (item.type !== 'return') return false;
+                const meta = normalizeMeta(data.meta[item.team] || {});
+                return !(data.activeSemester && meta.semester !== data.activeSemester);
+            })
             .map(item => {
                 const meta = normalizeMeta(data.meta[item.team] || {});
                 const catalog = ITEM_MAP[item.itemId];

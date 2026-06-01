@@ -1895,3 +1895,49 @@ tbody tr {
 .hidden {
   display: none !important;
 }
+
+/* Semester Section */
+.semester-section {
+  display: flex;
+  gap: 8px;
+  padding: 16px 16px 0;
+}
+
+.semester-section select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: .85rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.semester-section select option {
+  background: var(--amity-blue);
+  color: #fff;
+}
+
+.semester-section button {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--amity-gold);
+  color: var(--amity-blue);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: opacity var(--transition);
+}
+
+.semester-section button:hover {
+  opacity: 0.9;
+}
+
+#sidebar.collapsed .semester-section {
+  display: none;
+}
+
