@@ -487,11 +487,14 @@
             throw new Error('This account is not allowed to access this tracker.');
         }
         firebaseAuthToken = result.idToken || '';
-        sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
-            email: result.email,
-            idToken: firebaseAuthToken,
-            expiresAt: Date.now() + (Number(result.expiresIn || 3600) * 1000)
-        }));
+        window.__fb_token = firebaseAuthToken; // Temporary exposure for cloud backup
+        if (firebaseAuthToken) {
+            sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+                email: result.email,
+                idToken: firebaseAuthToken,
+                expiresAt: Date.now() + (Number(result.expiresIn || 3600) * 1000)
+            }));
+        }
     }
 
     function restoreFirebaseSession() {
@@ -499,6 +502,7 @@
             const session = JSON.parse(sessionStorage.getItem(AUTH_SESSION_KEY) || '{}');
             if (!isAllowedAdminUser(session) || !session.idToken || session.expiresAt <= Date.now()) return false;
             firebaseAuthToken = session.idToken;
+            window.__fb_token = firebaseAuthToken; // Temporary exposure for cloud backup
             return true;
         } catch {
             return false;
