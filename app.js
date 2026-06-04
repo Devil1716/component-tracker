@@ -247,13 +247,17 @@
         }));
     }
     function normalizeMeta(meta = {}, fallbackId = '') {
+        let fUsed = parseFloat(meta.filamentUsed);
+        if (isNaN(fUsed) || fUsed < 0) fUsed = 0;
+        if (fUsed > 100) fUsed = 100;
         return {
             ...meta,
             id: cleanString(meta.id || fallbackId, 40),
             projectName: cleanString(meta.projectName, 160),
             detailsCollapsed: meta.detailsCollapsed === true,
             members: normalizeMembers(meta.members),
-            semester: cleanString(meta.semester || (typeof data !== 'undefined' && data ? data.activeSemester : 'Winter Semester'), 80)
+            semester: cleanString(meta.semester || (typeof data !== 'undefined' && data ? data.activeSemester : 'Winter Semester'), 80),
+            filamentUsed: fUsed
         };
     }
     function normalizeData(raw) {
@@ -415,8 +419,10 @@
                 await putRemoteData(data);
                 remoteSavePending = false; // Successfully saved
                 setSyncStatus('Saved to cloud.', 'success');
+                localStorage.removeItem(KEY + '_needs_sync');
             } catch (err) {
                 remoteSavePending = false; // Done attempting
+                localStorage.setItem(KEY + '_needs_sync', 'true');
                 setSyncStatus('Cloud sync failed. Local copy saved.', 'danger');
                 console.error('Firebase save failed', err);
             }
@@ -573,6 +579,19 @@
                     return;
                 }
                 try {
+                    const localNeedsSync = localStorage.getItem(KEY + '_needs_sync') === 'true';
+                    if (localNeedsSync) {
+                        const remoteRaw = await getRemoteData();
+                        if (remoteSavePending || isUserEditing()) return;
+                        data = mergeData(remoteRaw, data);
+                        await putRemoteData(data);
+                        localStorage.removeItem(KEY + '_needs_sync');
+                        save(data, { remote: true });
+                        setSyncStatus(`Cloud sync connected (${APP_ENV})`, 'success');
+                        renderAll();
+                        return;
+                    }
+
                     const nextRaw = await getRemoteData();
                     if (!nextRaw) return;
                     // Double check in case the user started editing during the network request
@@ -602,7 +621,7 @@
     const teamSearchInput = $('#teamSearchInput'), semesterSelect = $('#semesterSelect'), addSemesterBtn = $('#addSemesterBtn');
     const emptyState = $('#emptyState'), teamView = $('#teamView'), teamTitle = $('#teamTitle');
     const deleteTeamBtn = $('#deleteTeamBtn'), componentSelect = $('#componentSelect'); // INPUT
-    const teamRenameInput = $('#teamRenameInput'), teamNumberInput = $('#teamNumberInput'), projectNameInput = $('#projectNameInput');
+    const teamRenameInput = $('#teamRenameInput'), teamNumberInput = $('#teamNumberInput'), projectNameInput = $('#projectNameInput'), filamentInput = $('#filamentInput');
     const renameTeamBtn = $('#renameTeamBtn'), saveDetailsBtn = $('#saveDetailsBtn');
     const membersGrid = $('#membersGrid'), syncStatus = $('#syncStatus');
     const detailsEditor = $('#detailsEditor'), detailsSummary = $('#detailsSummary'), editDetailsBtn = $('#editDetailsBtn');
@@ -859,7 +878,24 @@
         editDetailsBtn.classList.toggle('hidden', !collapsed);
         if (collapsed) {
             const filled = members.filter(member => member.name && member.sen && member.branch && isValidEmail(member.email)).length;
-            detailsSummary.innerHTML = `<strong>${esc(meta.id)} - ${filled}/${MEMBER_COUNT} members saved</strong><span>${esc(meta.projectName)} - ${esc(activeTeam)}</span>`;
+            const filamentUsed = meta.filamentUsed || 0;
+            let barClass = 'safe';
+            if (filamentUsed >= 100) barClass = 'danger';
+            else if (filamentUsed >= 80) barClass = 'warning';
+
+            detailsSummary.innerHTML = `
+                <strong>${esc(meta.id)} - ${filled}/${MEMBER_COUNT} members saved</strong>
+                <span>${esc(meta.projectName)} - ${esc(activeTeam)}</span>
+                <div class="summary-filament-row">
+                    <div class="filament-label">
+                        <span>3D Print Filament</span>
+                        <strong>${filamentUsed.toFixed(1)}g / 100g</strong>
+                    </div>
+                    <div class="filament-progress-bar">
+                        <div class="filament-progress-fill ${barClass}" style="width: ${Math.min(100, filamentUsed)}%"></div>
+                    </div>
+                </div>
+            `;
         }
     }
 
@@ -904,11 +940,21 @@
             email: normalizeEmail(card.querySelector('[data-field="email"]')?.value || ''),
             branch: card.querySelector('[data-field="branch"]')?.value || ''
         }));
+        let filamentVal = parseFloat(filamentInput.value);
+        if (isNaN(filamentVal) || filamentVal < 0) {
+            filamentVal = 0;
+        }
+        if (filamentVal > 100) {
+            detailsSaveInProgress = false;
+            return toast('Filament used cannot exceed 100 grams', 'danger');
+        }
+
         const meta = normalizeMeta({
             ...(data.meta[activeTeam] || {}),
             id: teamNumberInput.value,
             projectName: projectNameInput.value,
-            members
+            members,
+            filamentUsed: filamentVal
         });
         const finish = () => setTimeout(() => { detailsSaveInProgress = false; }, 150);
         if (!meta.id) { finish(); return toast('Enter a team number', 'danger'); }
@@ -1037,6 +1083,7 @@
             teamRenameInput.value = name;
             teamNumberInput.value = meta.id || '';
             projectNameInput.value = meta.projectName || '';
+            filamentInput.value = meta.filamentUsed !== undefined ? meta.filamentUsed : '0';
         }
 
         renderTeams();
@@ -1796,6 +1843,7 @@
     teamNumberInput.addEventListener('input', updateTeamMetaField);
     projectNameInput.addEventListener('input', updateTeamMetaField);
     saveDetailsBtn.addEventListener('click', saveTeamDetails);
+    filamentInput.addEventListener('change', saveTeamDetails);
     membersGrid.addEventListener('input', e => updateMember(e.target));
     membersGrid.addEventListener('change', e => updateMember(e.target));
     deleteTeamBtn.addEventListener('click', deleteTeam);

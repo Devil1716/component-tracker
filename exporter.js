@@ -110,7 +110,8 @@
                     Quantity: item.qty,
                     'Assigned Date': item.date || '',
                     Status: 'Pending',
-                    Notes: item.memberEmail ? `Issued to ${member?.name || item.memberEmail}` : 'Issued to team'
+                    Notes: item.memberEmail ? `Issued to ${member?.name || item.memberEmail}` : 'Issued to team',
+                    'Filament Used (g)': meta.filamentUsed || 0
                 });
             });
         });
@@ -136,7 +137,8 @@
                     Quantity: item.qty,
                     'Assigned Date': item.date || '',
                     Status: 'Returned',
-                    Notes: 'Returned to inventory'
+                    Notes: 'Returned to inventory',
+                    'Filament Used (g)': meta.filamentUsed || 0
                 };
             });
             
@@ -175,6 +177,7 @@
                 'Team ID': row['Team ID'],
                 Team: row.Team,
                 'Project Name': row['Project Name'],
+                'Filament Used (g)': row['Filament Used (g)'],
                 Component: row.Component,
                 Member: row.Member,
                 Email: row.Email,
@@ -184,7 +187,7 @@
             }));
             return {
                 filename: 'team_wise_components.csv',
-                headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Date', 'Status'],
+                headers: ['Team ID', 'Team', 'Project Name', 'Filament Used (g)', 'Component', 'Member', 'Email', 'Quantity', 'Date', 'Status'],
                 rows: sortRows(rows, sortKey)
             };
         }
@@ -193,7 +196,7 @@
             const rows = buildAllocationRows(data, ITEM_MAP, normalizeMeta, normalizeMembers, false);
             return {
                 filename: 'pending_components_report.csv',
-                headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'],
+                headers: ['Team ID', 'Team', 'Project Name', 'Filament Used (g)', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'],
                 rows: sortRows(rows, sortKey)
             };
         }
@@ -202,7 +205,7 @@
         const rows = buildAllocationRows(data, ITEM_MAP, normalizeMeta, normalizeMembers, true);
         return {
             filename: 'allocation_report.csv',
-            headers: ['Team ID', 'Team', 'Project Name', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'],
+            headers: ['Team ID', 'Team', 'Project Name', 'Filament Used (g)', 'Component', 'Member', 'Email', 'Quantity', 'Assigned Date', 'Status', 'Notes'],
             rows: sortRows(rows, sortKey)
         };
     }
