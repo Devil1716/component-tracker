@@ -465,32 +465,47 @@
     }
 
     function isAllowedAdminUser(user) {
-        if (!user || !user.email) return false;
-        return Boolean(ADMIN_EMAIL && user.email.toLowerCase() === ADMIN_EMAIL);
+        if (!user) return false;
+        const email = (user.email || user.username || '').toLowerCase().trim();
+        return Boolean(ADMIN_EMAIL && email === ADMIN_EMAIL);
     }
 
     async function signInFirebaseAdmin(email, password) {
         if (!ADMIN_EMAIL) throw new Error('Admin Firebase email is not configured.');
         if (!RUNTIME_CONFIG.firebase?.apiKey) throw new Error('Firebase API key is not configured.');
         if (!email || !password) throw new Error('Enter the admin email and password.');
+        
+        let loginEmail = email.trim().toLowerCase();
+        // If the user entered just the username part of the admin email, auto-complete it to allow easy login
+        if (!loginEmail.includes('@') && ADMIN_EMAIL.includes('@')) {
+            const adminPrefix = ADMIN_EMAIL.split('@')[0];
+            if (loginEmail === adminPrefix) {
+                loginEmail = ADMIN_EMAIL;
+            }
+        }
+
         const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(RUNTIME_CONFIG.firebase.apiKey)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, returnSecureToken: true })
+            body: JSON.stringify({ email: loginEmail, password, returnSecureToken: true })
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error('Invalid username or password.');
         }
-        if (!isAllowedAdminUser(result)) {
+        
+        // Stash the successfully authenticated email (either from the Firebase result or fallback to the loginEmail we submitted)
+        const authenticatedEmail = (result.email || loginEmail).toLowerCase().trim();
+        if (authenticatedEmail !== ADMIN_EMAIL) {
             firebaseAuthToken = '';
             throw new Error('This account is not allowed to access this tracker.');
         }
+        
         firebaseAuthToken = result.idToken || '';
         window.__fb_token = firebaseAuthToken; // Temporary exposure for cloud backup
         if (firebaseAuthToken) {
             sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
-                email: result.email,
+                email: authenticatedEmail,
                 idToken: firebaseAuthToken,
                 expiresAt: Date.now() + (Number(result.expiresIn || 3600) * 1000)
             }));
